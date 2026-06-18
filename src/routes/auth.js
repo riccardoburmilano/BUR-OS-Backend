@@ -153,7 +153,7 @@ router.get('/patients/:id', requireStaff, async (req, res) => {
   }
 });
 
-router.post('/patients', requireStaff, requireRole('MEDICO', 'CEO'), async (req, res) => {
+router.post('/patients', requireStaff, async (req, res) => {
   try {
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: 'name obbligatorio' });
@@ -164,7 +164,7 @@ router.post('/patients', requireStaff, requireRole('MEDICO', 'CEO'), async (req,
   }
 });
 
-router.put('/patients/:id', requireStaff, requireRole('MEDICO', 'CEO'), async (req, res) => {
+router.put('/patients/:id', requireStaff, async (req, res) => {
   try {
     const patient = await db.patientUpdate(req.params.id, req.clinic_id, req.body);
     if (!patient) return res.status(404).json({ error: 'Paziente non trovato' });
