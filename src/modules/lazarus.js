@@ -40,7 +40,7 @@ const PROVIDERS = {
   },
   gemini_flash: {
     name: 'Gemini Flash',
-    model: 'gemini-1.5-flash',
+    model: 'gemini-2.0-flash',
     tier: 'FAST',
     cost_per_token: 0.00001,
     rpm_limit: 15,
@@ -55,7 +55,7 @@ const PROVIDERS = {
   },
   gemini_pro: {
     name: 'Gemini Pro',
-    model: 'gemini-1.5-pro',
+    model: 'gemini-2.0-flash-lite',
     tier: 'POWER',
     cost_per_token: 0.00005,
     rpm_limit: 2,
