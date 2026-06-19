@@ -11,8 +11,22 @@ const { requireAdmin, requireStaff, requireRole } = require('../modules/authMidd
 
 router.get('/clinic/status', async (req, res) => {
   try {
+    // Se c'è un token staff, restituisce la clinica dello staff
+    const auth = req.headers.authorization;
+    if (auth?.startsWith('Bearer ')) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const JWT_SECRET = process.env.JWT_SECRET || 'god-os-jwt-secret-change-in-prod';
+        const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+        if (payload.clinic_id) {
+          const rows = await db.sql`SELECT id, name, city, specialties FROM clinic WHERE id = ${payload.clinic_id} LIMIT 1`;
+          if (rows[0]) return res.json({ registered: true, clinic: rows[0] });
+        }
+      } catch {}
+    }
+    // Fallback — prima clinica disponibile
     const clinic = await db.clinicGet();
-    res.json({ registered: !!clinic, clinic: clinic ? { name: clinic.name, city: clinic.city } : null });
+    res.json({ registered: !!clinic, clinic: clinic ? { id: clinic.id, name: clinic.name, city: clinic.city } : null });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -20,15 +34,13 @@ router.get('/clinic/status', async (req, res) => {
 
 router.post('/clinic/register', async (req, res) => {
   try {
-    const existing = await db.clinicGet();
-    if (existing) return res.status(409).json({ error: 'Clinica già registrata. Usa il login.' });
     const { name, city, specialties, logo_url, admin_email, admin_password } = req.body;
     if (!name || !admin_email || !admin_password) return res.status(400).json({ error: 'name, admin_email e admin_password sono obbligatori' });
     if (admin_password.length < 8) return res.status(400).json({ error: 'Password deve essere di almeno 8 caratteri' });
     const clinic = await db.clinicCreate({ name, city, specialties, logo_url, admin_email, admin_password });
     res.status(201).json({ success: true, clinic });
   } catch (err) {
-    if (err.message?.includes('unique')) return res.status(409).json({ error: 'Email già registrata' });
+    if (err.message?.includes('unique')) return res.status(409).json({ error: 'Email già registrata — usa un'altra email' });
     res.status(500).json({ error: err.message });
   }
 });
@@ -39,7 +51,9 @@ router.post('/clinic/login', async (req, res) => {
     if (!email || !password) return res.status(400).json({ error: 'email e password obbligatori' });
     const result = await db.clinicLogin(email, password);
     if (!result) return res.status(401).json({ error: 'Credenziali non valide' });
-    res.json({ success: true, ...result });
+    // Includi clinic_id nel risultato
+    const clinicRows = await db.sql`SELECT id, name, city FROM clinic WHERE admin_email = ${email} LIMIT 1`;
+    res.json({ success: true, ...result, clinic_id: clinicRows[0]?.id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -58,9 +72,23 @@ router.get('/clinic', requireAdmin, async (req, res) => {
 
 router.get('/staff', async (req, res) => {
   try {
-    const clinic = await db.clinicGet();
-    if (!clinic) return res.status(404).json({ error: 'Clinica non configurata' });
-    const staff = await db.staffList(clinic.id);
+    // Prova a usare clinic_id dal token
+    const auth = req.headers.authorization;
+    let clinicId = null;
+    if (auth?.startsWith('Bearer ')) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const JWT_SECRET = process.env.JWT_SECRET || 'god-os-jwt-secret-change-in-prod';
+        const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+        clinicId = payload.clinic_id;
+      } catch {}
+    }
+    if (!clinicId) {
+      const clinic = await db.clinicGet();
+      if (!clinic) return res.status(404).json({ error: 'Clinica non configurata' });
+      clinicId = clinic.id;
+    }
+    const staff = await db.staffList(clinicId);
     res.json({ staff });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -566,8 +594,9 @@ router.post('/admin/staff-token', async (req, res) => {
     const result = await db.clinicLogin(email, password);
     if (!result) return res.status(401).json({ error: 'Credenziali non valide' });
 
-    // Trova il CEO della clinica
-    const clinic = await db.clinicGet();
+    // Trova la clinica per email
+    const clinicRows = await db.sql`SELECT * FROM clinic WHERE admin_email = ${email} LIMIT 1`;
+    const clinic = clinicRows[0] || result.clinic;
     const staffRows = await db.sql`
       SELECT * FROM staff 
       WHERE clinic_id = ${clinic.id} AND role = 'CEO' AND active = TRUE 
