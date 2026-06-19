@@ -40,7 +40,7 @@ router.post('/clinic/register', async (req, res) => {
     const clinic = await db.clinicCreate({ name, city, specialties, logo_url, admin_email, admin_password });
     res.status(201).json({ success: true, clinic });
   } catch (err) {
-    if (err.message?.includes('unique')) return res.status(409).json({ error: 'Email già registrata — usa un'altra email' });
+    if (err.message?.includes('unique')) return res.status(409).json({ error: "Email già registrata — usa un'altra email" });
     res.status(500).json({ error: err.message });
   }
 });
