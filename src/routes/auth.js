@@ -95,21 +95,30 @@ router.get('/staff', async (req, res) => {
   }
 });
 
-router.post('/staff', requireAdmin, async (req, res) => {
+router.post('/staff', async (req, res) => {
   try {
+    // Valida token (admin o staff CEO)
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'Token mancante' });
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'god-os-jwt-secret-change-in-prod';
+    let payload;
+    try { payload = jwt.verify(auth.slice(7), JWT_SECRET); } catch { return res.status(401).json({ error: 'Token non valido' }); }
+    const clinic_id_from_token = payload.clinic_id;
+
     const { name, role, pin, avatar_color } = req.body;
     if (!name || !role || !pin) return res.status(400).json({ error: 'name, role e pin obbligatori' });
     if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: 'PIN deve essere di 4 cifre numeriche' });
     const valid_roles = ['CEO', 'MEDICO', 'RECEPTIONIST', 'ASSISTENTE', 'INFERMIERE', 'LEGALE', 'MARKETING'];
     if (!valid_roles.includes(role)) return res.status(400).json({ error: `role deve essere uno tra: ${valid_roles.join(', ')}` });
-    const member = await db.staffCreate({ clinic_id: req.clinic_id, name, role, pin, avatar_color });
+    const member = await db.staffCreate({ clinic_id: clinic_id_from_token, name, role, pin, avatar_color });
     res.status(201).json({ success: true, staff: member });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.put('/staff/:id', requireAdmin, async (req, res) => {
+router.put('/staff/:id', async (req, res) => {
   try {
     const updated = await db.staffUpdate(req.params.id, req.clinic_id, req.body);
     if (!updated) return res.status(404).json({ error: 'Staff non trovato' });
@@ -119,7 +128,7 @@ router.put('/staff/:id', requireAdmin, async (req, res) => {
   }
 });
 
-router.put('/staff/:id/pin', requireAdmin, async (req, res) => {
+router.put('/staff/:id/pin', async (req, res) => {
   try {
     const { pin } = req.body;
     if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: 'PIN deve essere di 4 cifre numeriche' });
