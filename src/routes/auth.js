@@ -555,4 +555,62 @@ Paziente: ${JSON.stringify(paziente)}`;
   }
 });
 
+// ── ADMIN TOKEN COMPAT ───────────────────────────────────────
+// Permette all'admin di entrare come CEO usando le credenziali clinica
+router.post('/admin/staff-token', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'email e password obbligatori' });
+
+    // Verifica credenziali admin
+    const result = await db.clinicLogin(email, password);
+    if (!result) return res.status(401).json({ error: 'Credenziali non valide' });
+
+    // Trova il CEO della clinica
+    const clinic = await db.clinicGet();
+    const staffRows = await db.sql`
+      SELECT * FROM staff 
+      WHERE clinic_id = ${clinic.id} AND role = 'CEO' AND active = TRUE 
+      LIMIT 1
+    `;
+    
+    let staffMember = staffRows[0];
+    
+    // Se non c'è un CEO, usa dati admin direttamente
+    if (!staffMember) {
+      staffMember = {
+        id: clinic.id,
+        name: 'Admin',
+        role: 'CEO',
+        avatar_color: '#00897B'
+      };
+    }
+
+    // Genera token staff valido
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'god-os-jwt-secret-change-in-prod';
+    const token = jwt.sign(
+      { staff_id: staffMember.id, clinic_id: clinic.id, role: 'CEO', name: staffMember.name },
+      JWT_SECRET,
+      { expiresIn: '12h' }
+    );
+
+    // Salva sessione
+    const expires = new Date(Date.now() + 12 * 3600 * 1000);
+    await db.sql`
+      INSERT INTO staff_sessions (staff_id, clinic_id, token, expires_at)
+      VALUES (${staffMember.id}, ${clinic.id}, ${token}, ${expires})
+      ON CONFLICT DO NOTHING
+    `.catch(() => {});
+
+    res.json({
+      success: true,
+      staff: { id: staffMember.id, name: staffMember.name, role: 'CEO', avatar_color: staffMember.avatar_color || '#00897B' },
+      token
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
