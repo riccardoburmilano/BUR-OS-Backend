@@ -72,24 +72,29 @@ router.get('/clinic', requireAdmin, async (req, res) => {
 
 router.get('/staff', async (req, res) => {
   try {
-    // Prova a usare clinic_id dal token
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'god-os-jwt-secret-change-in-prod';
     const auth = req.headers.authorization;
     let clinicId = null;
+
+    // Prova token
     if (auth?.startsWith('Bearer ')) {
       try {
-        const jwt = require('jsonwebtoken');
-        const JWT_SECRET = process.env.JWT_SECRET || 'god-os-jwt-secret-change-in-prod';
         const payload = jwt.verify(auth.slice(7), JWT_SECRET);
         clinicId = payload.clinic_id;
       } catch {}
     }
-    if (!clinicId) {
-      const clinic = await db.clinicGet();
-      if (!clinic) return res.status(404).json({ error: 'Clinica non configurata' });
-      clinicId = clinic.id;
+
+    // Fallback: cerca per email se passa query param
+    if (!clinicId && req.query.email) {
+      const rows = await db.sql`SELECT id FROM clinic WHERE admin_email = ${req.query.email} LIMIT 1`;
+      clinicId = rows[0]?.id;
     }
+
+    if (!clinicId) return res.status(400).json({ error: 'clinic_id non determinabile — effettua il login' });
+
     const staff = await db.staffList(clinicId);
-    res.json({ staff });
+    res.json({ staff, clinic_id: clinicId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -144,9 +149,12 @@ router.post('/staff/login', async (req, res) => {
     const { staff_id, pin } = req.body;
     if (!staff_id || !pin) return res.status(400).json({ error: 'staff_id e pin obbligatori' });
     if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: 'PIN non valido' });
-    const clinic = await db.clinicGet();
-    if (!clinic) return res.status(404).json({ error: 'Clinica non configurata' });
-    const result = await db.staffPinLogin(clinic.id, staff_id, pin);
+
+    // Trova clinic_id dal staff_id direttamente
+    const staffRows = await db.sql`SELECT clinic_id FROM staff WHERE id = ${staff_id} AND active = TRUE LIMIT 1`;
+    if (!staffRows[0]) return res.status(404).json({ error: 'Staff non trovato' });
+    
+    const result = await db.staffPinLogin(staffRows[0].clinic_id, staff_id, pin);
     if (!result) return res.status(401).json({ error: 'PIN non corretto' });
     res.json({ success: true, ...result });
   } catch (err) {
