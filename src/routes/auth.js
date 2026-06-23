@@ -123,7 +123,7 @@ router.post('/staff', async (req, res) => {
   }
 });
 
-router.put('/staff/:id', async (req, res) => {
+router.put('/staff/:id', requireStaff, async (req, res) => {
   try {
     const updated = await db.staffUpdate(req.params.id, req.clinic_id, req.body);
     if (!updated) return res.status(404).json({ error: 'Staff non trovato' });
@@ -133,7 +133,7 @@ router.put('/staff/:id', async (req, res) => {
   }
 });
 
-router.put('/staff/:id/pin', async (req, res) => {
+router.put('/staff/:id/pin', requireStaff, async (req, res) => {
   try {
     const { pin } = req.body;
     if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: 'PIN deve essere di 4 cifre numeriche' });
