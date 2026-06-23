@@ -99,15 +99,17 @@ async function staffVerifyToken(token) {
   } catch { return null; }
 }
 
-async function staffUpdate(id, clinic_id, { name, role, avatar_color, active }) {
+async async function staffUpdate(id, clinic_id, { name, role, avatar_color, active, email, notes }) {
   const rows = await sql`
     UPDATE staff SET
-      name = COALESCE(${name}, name),
-      role = COALESCE(${role}, role),
-      avatar_color = COALESCE(${avatar_color}, avatar_color),
-      active = COALESCE(${active}, active)
+      name = COALESCE(${name ?? null}, name),
+      role = COALESCE(${role ?? null}, role),
+      avatar_color = COALESCE(${avatar_color ?? null}, avatar_color),
+      active = COALESCE(${active ?? null}, active),
+      email = COALESCE(${email ?? null}, email),
+      notes = COALESCE(${notes ?? null}, notes)
     WHERE id = ${id} AND clinic_id = ${clinic_id}
-    RETURNING id, name, role, avatar_color, active
+    RETURNING id, name, role, avatar_color, active, email, notes
   `;
   return rows[0] || null;
 }
