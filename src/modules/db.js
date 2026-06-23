@@ -157,7 +157,29 @@ async function patientGet(id, clinic_id) {
 }
 
 async function patientUpdate(id, clinic_id, fields) {
-  const { name, age, phone, email, tags, treatments, notes, next_appointment, total_spend } = fields;
+  const { name, age, phone, email, tags, treatments, notes, total_spend } = fields;
+  
+  // Se next_appointment è esplicitamente passato (anche null), aggiornalo
+  if ('next_appointment' in fields) {
+    const appt = fields.next_appointment;
+    const rows = await sql`
+      UPDATE patients SET
+        name = COALESCE(${name}, name),
+        age = COALESCE(${age}, age),
+        phone = COALESCE(${phone}, phone),
+        email = COALESCE(${email}, email),
+        tags = COALESCE(${tags}, tags),
+        treatments = COALESCE(${treatments}, treatments),
+        notes = COALESCE(${notes}, notes),
+        next_appointment = ${appt},
+        total_spend = COALESCE(${total_spend}, total_spend),
+        updated_at = NOW()
+      WHERE id = ${id} AND clinic_id = ${clinic_id}
+      RETURNING *
+    `;
+    return rows[0] || null;
+  }
+  
   const rows = await sql`
     UPDATE patients SET
       name = COALESCE(${name}, name),
@@ -167,7 +189,6 @@ async function patientUpdate(id, clinic_id, fields) {
       tags = COALESCE(${tags}, tags),
       treatments = COALESCE(${treatments}, treatments),
       notes = COALESCE(${notes}, notes),
-      next_appointment = COALESCE(${next_appointment}, next_appointment),
       total_spend = COALESCE(${total_spend}, total_spend),
       updated_at = NOW()
     WHERE id = ${id} AND clinic_id = ${clinic_id}
