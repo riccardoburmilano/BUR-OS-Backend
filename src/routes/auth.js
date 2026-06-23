@@ -676,23 +676,34 @@ router.put('/clinic/update', async (req, res) => {
     const clinicRows = await db.sql`SELECT id FROM clinic WHERE id = ${payload.clinic_id} LIMIT 1`;
     if (!clinicRows[0]) return res.status(404).json({ error: 'Clinica non trovata' });
     
-    const bcrypt = require('bcrypt');
-    const updates = { name, city, specialties };
-    if (admin_email) updates.admin_email = admin_email;
+    let passwordHash = null;
     if (admin_password && admin_password.length >= 8) {
-      updates.admin_password_hash = await bcrypt.hash(admin_password, 10);
+      const bcrypt = require('bcryptjs');
+      passwordHash = await bcrypt.hash(admin_password, 10);
     }
     
-    await db.sql`
-      UPDATE clinic SET
-        name = ${name},
-        city = ${city || null},
-        specialties = ${specialties || []},
-        admin_email = ${admin_email || null},
-        updated_at = NOW()
-        ${admin_password && admin_password.length >= 8 ? db.sql`, admin_password_hash = ${updates.admin_password_hash}` : db.sql``}
-      WHERE id = ${payload.clinic_id}
-    `;
+    if (passwordHash) {
+      await db.sql`
+        UPDATE clinic SET
+          name = ${name},
+          city = ${city || null},
+          specialties = ${specialties || []},
+          admin_email = ${admin_email || null},
+          admin_password_hash = ${passwordHash},
+          updated_at = NOW()
+        WHERE id = ${payload.clinic_id}
+      `;
+    } else {
+      await db.sql`
+        UPDATE clinic SET
+          name = ${name},
+          city = ${city || null},
+          specialties = ${specialties || []},
+          admin_email = ${admin_email || null},
+          updated_at = NOW()
+        WHERE id = ${payload.clinic_id}
+      `;
+    }
     
     const updated = await db.sql`SELECT id, name, city, specialties, admin_email FROM clinic WHERE id = ${payload.clinic_id} LIMIT 1`;
     res.json({ success: true, clinic: updated[0] });
