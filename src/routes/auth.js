@@ -659,4 +659,46 @@ router.post('/admin/staff-token', async (req, res) => {
   }
 });
 
+
+// ── CLINIC UPDATE ─────────────────────────────────────────────
+router.put('/clinic/update', async (req, res) => {
+  try {
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'god-os-jwt-secret-change-in-prod';
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'Token mancante' });
+    let payload;
+    try { payload = jwt.verify(auth.slice(7), JWT_SECRET); } catch { return res.status(401).json({ error: 'Token non valido' }); }
+    
+    const { name, city, specialties, admin_email, admin_password } = req.body;
+    if (!name) return res.status(400).json({ error: 'Nome clinica obbligatorio' });
+    
+    const clinicRows = await db.sql`SELECT id FROM clinic WHERE id = ${payload.clinic_id} LIMIT 1`;
+    if (!clinicRows[0]) return res.status(404).json({ error: 'Clinica non trovata' });
+    
+    const bcrypt = require('bcrypt');
+    const updates = { name, city, specialties };
+    if (admin_email) updates.admin_email = admin_email;
+    if (admin_password && admin_password.length >= 8) {
+      updates.admin_password_hash = await bcrypt.hash(admin_password, 10);
+    }
+    
+    await db.sql`
+      UPDATE clinic SET
+        name = ${name},
+        city = ${city || null},
+        specialties = ${specialties || []},
+        admin_email = ${admin_email || null},
+        updated_at = NOW()
+        ${admin_password && admin_password.length >= 8 ? db.sql`, admin_password_hash = ${updates.admin_password_hash}` : db.sql``}
+      WHERE id = ${payload.clinic_id}
+    `;
+    
+    const updated = await db.sql`SELECT id, name, city, specialties, admin_email FROM clinic WHERE id = ${payload.clinic_id} LIMIT 1`;
+    res.json({ success: true, clinic: updated[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
