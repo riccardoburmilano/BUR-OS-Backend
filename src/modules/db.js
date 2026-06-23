@@ -99,7 +99,7 @@ async function staffVerifyToken(token) {
   } catch { return null; }
 }
 
-async async function staffUpdate(id, clinic_id, { name, role, avatar_color, active, email, notes }) {
+async function staffUpdate(id, clinic_id, { name, role, avatar_color, active, email, notes }) {
   const rows = await sql`
     UPDATE staff SET
       name = COALESCE(${name ?? null}, name),
