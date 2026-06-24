@@ -1,215 +1,267 @@
 // ============================================================
-// novaContext.js — BUR OS Dynamic Context Builder
-// Assembla il contesto real-time per NOVA da dati clinica reali
+// novaContext.js v2.0 — BUR OS Dynamic Context Builder
+// Con memoria persistente e apprendimento clinico
 // ============================================================
 
 const { sql } = require('./db');
 
-// ── KNOWLEDGE BASE ESTETICA (embedded, ~4000 token) ──────────
+// ── KNOWLEDGE BASE MEDICINA ESTETICA ─────────────────────────
 const KNOWLEDGE_BASE = `
-=== BUR OS KNOWLEDGE BASE — MEDICINA ESTETICA ITALIANA v1.0 ===
+=== BUR OS KNOWLEDGE BASE — MEDICINA ESTETICA ITALIANA v2.0 ===
 
 ## FILLER ACIDO IALURONICO
 
-### Marche principali e caratteristiche
-- JUVEDERM (Allergan): Ultra (labbra, rughe superficiali), Voluma (zigomi, mento), Volift (rughe medio-profonde), Volbella (labbra naturali, rughe perioculari). Crosslinking VYCROSS. Durata 12-18 mesi.
-- RESTYLANE (Galderma): Kysse (labbra), Lyft (zigomi, guance), Defyne (rughe profondi), Refyne (rughe medi). Tecnologia NASHA/OBT. Durata 6-18 mesi.
-- BELOTERO (Merz): Balance (rughe superficiali), Intense (rughe profonde), Volume (volumizzazione). Tecnologia CPM. Durata 6-12 mesi.
-- TEOSYAL (Teoxane): Kiss (labbra), RHA (dinamico, mimica naturale), Global Action (rughe medie). Durata 9-18 mesi.
-- STYLAGE (Vivacy): Special Lips, M, L, XL. Con mannitolo antiossidante. Durata 12-18 mesi.
+### Marche principali
+- JUVEDERM (Allergan): Ultra (labbra, rughe superficiali), Voluma (zigomi, mento), Volift (rughe medio-profonde), Volbella (labbra naturali). Crosslinking VYCROSS. Durata 12-18 mesi.
+- RESTYLANE (Galderma): Kysse (labbra), Lyft (zigomi), Defyne (rughe profonde), Refyne (rughe medie). Tecnologia NASHA/OBT. Durata 6-18 mesi.
+- BELOTERO (Merz): Balance (superficiali), Intense (profonde), Volume (volumizzazione). Tecnologia CPM. Durata 6-12 mesi.
+- TEOSYAL (Teoxane): Kiss (labbra), RHA (dinamico), Global Action (rughe medie). Durata 9-18 mesi.
+- STYLAGE (Vivacy): con mannitolo antiossidante. Durata 12-18 mesi.
 
 ### Protocollo filler labbra
-1. Analisi morfologica labbra (proporzione 1:1.6 labbro sup/inf)
-2. Consenso informato FIRMATO — obbligatorio
-3. Anamnesi: farmaci anticoagulanti, FANS, Aspirina (sospendere 7gg prima), herpes labiale (profilassi Aciclovir 400mg 2x/die 3gg prima)
+1. Analisi morfologica (proporzione ideale 1:1.6 sup/inf)
+2. Consenso informato FIRMATO — obbligatorio per legge
+3. Anamnesi: anticoagulanti/FANS/Aspirina (sospendere 7gg), herpes (profilassi Aciclovir 400mg 2x/die 3gg prima)
 4. Foto pre-trattamento (frontale, laterale, 3/4)
-5. Anestesia topica (EMLA o simili) 20-30 minuti
-6. Disinfezione con clorexidina
-7. Tecnica: tunnelling per corpo labbro, microbolus per tubercoli, serial puncture per bordo vermiglio
-8. Aghi: 27-30G per retrograde injection, cannula 25G per meno traumi
-9. Massaggio modellante
-10. Ghiaccio 5-10 minuti post procedura
-11. Istruzioni post: no rossetto 24h, no sauna/sport 48h, no FANS 24h, idratare con acqua
-12. Follow-up: 2 settimane per ritocco
+5. Anestesia topica EMLA 20-30 minuti
+6. Disinfezione clorexidina
+7. Tecnica: tunnelling corpo labbro, microbolus tubercoli, serial puncture bordo vermiglio
+8. Aghi 27-30G retrograde, cannula 25G per meno traumi
+9. Massaggio modellante + ghiaccio 5-10 min post
+10. Follow-up 2 settimane per eventuale ritocco
 
 ### Controindicazioni assolute filler
 - Gravidanza e allattamento
-- Allergia all'acido ialuronico o lidocaina
+- Allergia acido ialuronico o lidocaina
 - Infezioni attive nella zona
-- Autoimmunità attiva (lupus, AR in fase acuta)
-- Trattamento con isotretinoina (Roaccutane) — attendere 6 mesi
+- Autoimmunità attiva in fase acuta
+- Isotretinoina (Roaccutane) — attendere 6 mesi post-fine terapia
 - Coagulopatie non trattate
 
-### Controindicazioni relative (valutare caso per caso)
-- Diabete non compensato
-- Herpes labialis ricorrente (profilassi antivirale)
-- Terapia anticoagulante (sospendere se possibile)
-- Precedenti reazioni ai filler
-- Aspettative non realistiche
-
----
+### Emergenze filler
+- OCCLUSIONE VASCOLARE: dolore acuto, blanching, livido improvviso → INIETTARE IMMEDIATAMENTE Hialuronidasi 150-300U → massaggio → calore → se non risolve entro 1h: PS
+- NECROSI INCIPIENTE: area pallida/cianotica → Hialuronidasi, Nitroglicerina topica, calore, massage
+- EMBOLIA RETINICA: perdita visiva → EMERGENZA ASSOLUTA → chiamare 118 immediatamente
 
 ## TOSSINA BOTULINICA
 
-### Marche disponibili in Italia
-- BOTOX (Allergan/AbbVie): unità Allergan. Gold standard. 100U/flacone.
-- DYSPORT (Ipsen): unità Speywood (1U Botox ≈ 2.5-3U Dysport). 300/500U/flacone.
-- XEOMIN (Merz): freeform, senza proteine complesse. Meno anticorpi. 100U/flacone.
-- LETYBO (Hugel): approvato EU 2022. Equivalente a Botox unit per unit.
-- BOCOUTURE: nome commerciale Xeomin in alcuni paesi.
+### Prodotti in Italia
+- BOTOX (Allergan): gold standard. 100U/flacone.
+- DYSPORT (Ipsen): 1U Botox ≈ 2.5-3U Dysport. 300/500U/flacone.
+- XEOMIN (Merz): senza proteine complesse, meno anticorpi. 100U/flacone.
+- LETYBO (Hugel): approvato EU 2022, equivalente Botox unit/unit.
 
-### Dosi standard (Botox units) — INDICATIVE, MAI prescrivere senza visita
-- Glabella (corrugatore, procerus): 15-25U
-- Fronte: 8-20U (attenzione al ptosi palpebrale)
+### Dosi standard INDICATIVE (Botox units)
+- Glabella: 15-25U
+- Fronte: 8-20U (⚠️ attenzione ptosi palpebrale — mai iniettare sotto linea pupillare)
 - Zampe di gallina: 6-15U per lato
-- Bunny lines (nasali): 2-5U per lato
-- Labbro superiore (lip flip): 2-4U
-- Mento (mentale): 4-8U
+- Bunny lines: 2-5U per lato
+- Lip flip: 2-4U labbro superiore
+- Mento: 4-8U
 - Massetere (bruxismo/slimming): 20-30U per lato
 - Iperidrosi ascellare: 50U per ascella
+- Platisma (nefertiti lift): 25-50U totali
+
+### Controindicazioni botox
+ASSOLUTE: Miastenia gravis, Sindrome di Eaton-Lambert, gravidanza, allattamento, aminoglicosidi in corso
+RELATIVE: Disturbi coagulazione, trattamento anticoagulante, infezione locale attiva
 
 ### Protocollo botox
-1. Analisi mimica DINAMICA (non statica)
-2. Consenso informato FIRMATO
-3. Anamnesi: miastenia gravis (CONTROINDICAZIONE ASSOLUTA), gravidanza, allattamento, aminoglicosidi
-4. Foto pre-trattamento con mimica
-5. Disinfezione
-6. Iniezione con ago 30-32G intradermica/sottocutanea
-7. NO massaggio post (rischio diffusione)
-8. Istruzioni post: no sport 24h, no sauna 48h, non coricarsi 4h, no manipolare zona
-9. Onset: 3-7 giorni, effetto pieno 14 giorni
-10. Follow-up: 2 settimane per valutazione e ritocco
-11. Durata: 3-6 mesi
+1. Analisi mimica DINAMICA (chiedere di corrugare, alzare sopracciglia, sorridere)
+2. Consenso informato firmato
+3. Foto pre con mimica attiva
+4. Ricostituire con soluzione fisiologica (2-4ml per 100U Botox — più diluito = spread maggiore)
+5. Ago 30-32G intradermico/sottocutaneo
+6. NO massaggio post (rischio diffusione non voluta)
+7. Paziente in posizione seduta/semireclinata durante iniezione
+8. Onset 3-7gg, pieno effetto 14gg
+9. Durata 3-6 mesi
+10. Follow-up 14gg per valutare simmetria e ritocco
 
-### Complicanze botox e gestione
-- Ptosi palpebrale: apraclonidina 0.5% collirio (stimola Müller), attesa 8-12 settimane
-- Ptosi sopracciglio: nessun antidoto, attesa
-- Asimmetria: ritocco a 2 settimane
-- Cefalea: transitoria, FANS
-- Ematoma: compressione, arnica
+### Complicanze botox
+- Ptosi palpebrale: Brimonidina collirio (stimola Müller) — attendere risoluzione 6-8 settimane
+- Ptosi sopracciglio: attenzione a frontale basso, trattare solo la parte superiore
+- Asinmetria: ritocco a 14gg con piccole dosi
+- Cefalea post: paracetamolo, solitamente risolve in 24-48h
 
----
+## BIOSTIMOLATORI E SKIN QUALITY
 
-## ANATOMIA FACCIALE — ZONE A RISCHIO VASCOLARE
+### Profhilo (IBSA)
+- 32mg/2ml HA non crosslinkato, alta fluidità
+- 5 punti BAP (Bio Aesthetic Points) per viso: 2 guance, 2 zigomi, 1 mento
+- Stimola collagene I, III, IV ed elastina
+- Protocollo: 2 sedute a distanza di 1 mese, poi mantenimento ogni 6 mesi
+- Indicato: lassità cutanea, skin quality, collo, décolleté
 
-### ATTENZIONE CRITICA — Zone ad alto rischio occlusione vascolare
-- Glabella: arteria sopratrocleare e sopraorbitale — RISCHIO CECITÀ
-- Naso: arteria dorsale del naso, angolare — RISCHIO NECROSI/CECITÀ  
-- Solco naso-labiale: arteria facciale — RISCHIO NECROSI
-- Regione temporale: arteria temporale superficiale
-- Labbra: arteria labiale superiore e inferiore
+### Radiesse (Merz)
+- Idrossiapatite di calcio, biostimolatore + volumizzatore
+- Durata 12-18 mesi
+- Mani, zigomi, jawline, correzione rughe profonde
+- Diluibile con lidocaina per uso skin booster
 
-### Protocollo emergenza occlusione vascolare
-1. RICONOSCIMENTO: dolore intenso, sbiancamento, livido violaceo
-2. AZIONE IMMEDIATA entro 30-60 minuti:
-   - Hialuronidasi 150-1500U nella zona (dissolve HA)
-   - Massaggio vigoroso
-   - Calore locale
-   - Aspirina 300mg subito
-   - Nitroglicerina topica (vasodilatatore)
-3. Chiamare PS se non risoluzione in 30 minuti
-4. AVERE SEMPRE Hialuronidasi in studio
-
-### Kit emergenza obbligatorio in studio estetico
-- Hialuronidasi (Hylase, Hyalase)
-- Adrenalina 1mg/ml
-- Cortisone iv
-- Antistaminico iv
-- Sfigmomanometro
-- Defibrillatore (raccomandata formazione BLS)
-
----
-
-## PEELING CHIMICI
-
-### Classificazione per profondità
-- SUPERFICIALE: AHA (acido glicolico, lattico, mandelico), BHA (salicilico). Epidermide. Downtime 1-3gg.
-- MEDIO: TCA 15-35%, Jessner + TCA 35%, acido retinoico. Dermide papillare. Downtime 5-7gg.
-- PROFONDO: Fenolo, TCA >50%. Dermide reticolare. Downtime 2-4 settimane. Anestesia necessaria.
-
-### Acidi principali
-- ACIDO GLICOLICO: 20-70%. Antiaging, acne, macchie. Neutralizzare con bicarbonato.
-- ACIDO SALICILICO: 20-30%. Acne, pori dilatati, seborrea. Auto-neutralizzante.
-- ACIDO MANDELICO: 25-50%. Delicato, fototipi scuri. Anti-acne, antiaging.
-- TCA: 15-50%. Rughe, cicatrici, macchie. Non neutralizzare, acqua abbondante.
-- ACIDO RETINOICO: 1-5% (Obagi). Antiaging profondo. Overnight.
-
----
+### PRP (Plasma Ricco di Piastrine)
+- Centrifugazione sangue paziente 1500-3000 rpm
+- Crescita fattori: PDGF, TGF-β, VEGF, EGF
+- Indicazioni: rigenerazione cutanea, alopecia, cicatrici
+- Protocollo: 3 sedute mensili + mantenimento 6-12 mesi
 
 ## LASER E TECNOLOGIE
 
-### Laser principali in estetica
-- CO2 FRAZIONATO: resurfacing, cicatrici, rughe profonde. Ablativo. Downtime 7-14gg.
-- ERBIUM YAG: resurfacing delicato, fototipi scuri. Meno downtime CO2.
-- ND:YAG 1064nm: vasi, macchie, capelli scuri, tatuaggi. Non ablativo.
-- ALEXANDRITE 755nm: epilazione fototipi chiari, macchie.
-- DIODO 810nm: epilazione, vasi. Versatile.
-- IPL: fotoringiovanimento, macchie, vasi. Non laser ma luce pulsata.
+### Laser CO2 frazionato
+- Lunghezza d'onda 10600nm
+- Indicazioni: rughe, acne cicatriziale, lassità, discromie, ringiovanimento
+- Controindicazioni: isotretinoina (attendere 6 mesi), keloid, Fitzpatrick V-VI (iperpigmentazione)
+- Recovery: 7-14 giorni (rossore, croste, desquamazione)
+- Pre: SPF religioso 4 settimane + depigmentanti se Fitzpatrick III-IV
+- Post: antibiotico topico, idratazione intensa, SPF obbligatorio 3 mesi
 
-### Controindicazioni laser/luce
-- Isotretinoina: attendere 6 mesi
-- Abbronzatura recente
-- Fotosensibilizzanti (tetracicline, amiodarone)
-- Gravidanza
-- Epilessia fotosensibile (IPL/laser pulsati)
-- Pacemaker (RF, HIFU vicino al torace)
+### IPL (Luce Pulsata Intensa)
+- Indicazioni: macchie solari, teleangectasie, rosacea, couperose, epilazione
+- Non è un laser (spettro largo 500-1200nm)
+- Controindicazioni: abbronzatura recente, Fitzpatrick V-VI, fotosensibilizzanti
 
----
+### Radiofrequenza
+- Termolifting non invasivo, stimolo fibroblasti
+- Indicazioni: lassità lieve-moderata, riduzione grasso localizzato
+- Nessun downtime
 
-## NORMATIVA ITALIANA — PUNTI CHIAVE
+## ANATOMIA E SICUREZZA
 
-### Chi può fare cosa
-- MEDICO CHIRURGO: tutte le procedure mediche e chirurgiche
-- MEDICO ESTETICO (specializzazione): filler, botox, laser medici, peeling profondi
-- ESTETISTA (diploma): trattamenti estetici non invasivi, peeling superficiali, laser estetici
-- INFERMIERE: preparazione pazienti, assistenza, NO procedure autonome
+### Zone ad alto rischio vascolare
+- GLABELLA: arteria sopratrocleare e sopraorbitale → rischio necrosi/cecità
+- REGIONE NASALE: arteria angolare, dorsale del naso → anastomosi con arteria oftalmica
+- SOLCO NASO-LABIALE: arteria labiale superiore → anastomosi con arteria facciale
+- TEMPIA: arteria temporale superficiale → visibile, palpabile, evitare
+- REGIONE PERIOCULARE: arteria sopraorbitale, infraorbitale
 
-### Consenso informato — obbligatorio per
-- Qualsiasi procedura invasiva (filler, botox, peeling medio-profondi)
-- Trattamenti laser
-- Deve essere: scritto, specifico, firmato PRIMA del trattamento, con tempo riflessione
-- Conservare minimo 10 anni (GDPR + responsabilità medica)
+### Scala di Fitzpatrick
+- I: sempre si scotta, non si abbronza (biondo/rosso)
+- II: spesso si scotta, poco abbronzato
+- III: a volte si scotta, abbronzatura moderata
+- IV: raramente si scotta, bronzo (mediterraneo)
+- V: molto raramente si scotta (latino americano, asiatico scuro)
+- VI: non si scotta mai (africano)
 
-### GDPR in studio medico
-- Dati sanitari = categoria speciale (art. 9 GDPR)
-- Base giuridica: consenso esplicito o necessità medica
-- DPO obbligatorio se trattamento su larga scala
-- Breach notification entro 72h al Garante
-- Cartella clinica: conservare 10 anni minimi
+### Principi di sicurezza fondamentali
+1. ASPIRARE sempre prima di iniettare filler in zone rischiose
+2. Iniettare LENTAMENTE (min 1ml/min per filler)
+3. Avere SEMPRE Hialuronidasi disponibile in studio
+4. Muovere l'ago durante iniezione per non restare in un vaso
+5. Preferire CANNULE nelle zone ad alto rischio
+6. Non iniettare profondo nel piano sottocutaneo della glabella
 
----
-
-## PRODOTTI E FARMACI COMUNI
-
-### Anestetico topico
-- EMLA (lidocaina 2.5% + prilocaina 2.5%): applicare 30-60 min, occludere
-- LMX4 (lidocaina 4%): applicare 20-30 min
-- BLT cream (benzocaina+lidocaina+tetracaina): uso off-label, potente
+## FARMACOLOGIA CLINIC
 
 ### Hialuronidasi (antidoto filler HA)
-- HYALASE 1500U/flacone: sciogliere in 1-2ml soluzione fisiologica
-- Dose: 150-1500U secondo gravità
-- Onset: 30-60 minuti
-- Può causare reazione allergica (test cutaneo se tempo consente)
+- Prodotti: Hyalase, Hylase Dessau
+- Dose: 150-300 unità per area
+- Diluire in 1ml soluzione fisiologica
+- Effetto visibile in 24-48h (può richiedere dosi multiple)
+- Conservare in frigo, usare entro 24h dalla diluizione
 
-### Arnica
-- Gel/crema post-procedura: riduce ematomi
-- Orale 6CH: iniziare 3gg prima di procedure
-- Non applicare su pelle lesa
+### Farmaci studio (must have)
+- Adrenalina 1:1000 (reazioni anafilattiche)
+- Antistaminici iv (Polaramin, Trimeton)
+- Cortisone iv (Soldesam, Bentelan)
+- Hialuronidasi
+- Aciclovir 400mg cp (profilassi herpes)
+- EMLA crema anestetica
+- Clorexidina 0.5-2%
 
-### Post-filler/botox
-- Idratazione intensa (acido ialuronico topico)
-- SPF50 obbligatorio post-peeling e laser
-- Vitamina C topica: antiossidante, brightening
-- Retinolo: antiaging, non usare 48h pre/post procedura invasiva
+## CONSENSI INFORMATI E NORMATIVA
 
-=== FINE KNOWLEDGE BASE ===
+### Obblighi legali in Italia
+- Consenso informato SCRITTO obbligatorio per ogni procedura
+- Firma del paziente e del medico
+- Conservare per ALMENO 10 anni
+- Include: rischi, benefici, alternative, possibili complicanze
+- Il medico deve essere iscritto all'Ordine dei Medici
+- La medicina estetica invasiva può essere eseguita SOLO da medici abilitati
+
+### GDPR e privacy dati sanitari
+- Dati biometrici e sanitari = dati sensibili (art. 9 GDPR)
+- Consenso esplicito per raccolta foto
+- Informativa privacy firmata
+- Dati conservati in forma sicura e cifrata
+- Diritto alla cancellazione (salvo obblighi di legge)
+
+=== FINE KNOWLEDGE BASE v2.0 ===
 `;
+
+// ── MEMORIA CLINICA PERSISTENTE ───────────────────────────────
+async function loadClinicMemory(clinicId) {
+  try {
+    // Carica ultime interazioni NOVA per questa clinica (feedback positivi = apprendimento)
+    const feedbackRows = await sql`
+      SELECT question, correction, role_id, created_at
+      FROM nova_feedback
+      WHERE clinic_id = ${clinicId}
+        AND feedback = 'positive'
+        AND correction IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 20
+    `.catch(() => []);
+
+    // Carica pazienti con note cliniche rilevanti
+    const patientNotes = await sql`
+      SELECT name, age, treatments, notes, tags, total_spend
+      FROM patients
+      WHERE clinic_id = ${clinicId}
+        AND (notes IS NOT NULL AND notes != '' OR tags != '{}')
+      ORDER BY updated_at DESC
+      LIMIT 30
+    `.catch(() => []);
+
+    // Carica ultimi 50 pazienti per pattern trattamenti
+    const treatmentPatterns = await sql`
+      SELECT treatments, COUNT(*) as count
+      FROM patients
+      WHERE clinic_id = ${clinicId}
+        AND treatments != '{}'
+      GROUP BY treatments
+      ORDER BY count DESC
+      LIMIT 10
+    `.catch(() => []);
+
+    let memoryText = '';
+
+    if (feedbackRows.length > 0) {
+      memoryText += `\n=== APPRENDIMENTO DA SESSIONI PRECEDENTI ===\n`;
+      feedbackRows.slice(0, 5).forEach(f => {
+        memoryText += `- Correzione ricevuta [${f.role_id}]: "${f.correction?.slice(0, 150)}"\n`;
+      });
+    }
+
+    if (patientNotes.length > 0) {
+      memoryText += `\n=== PAZIENTI CON NOTE CLINICHE ===\n`;
+      patientNotes.slice(0, 10).forEach(p => {
+        const tags = (p.tags || []).join(', ');
+        const treatments = (p.treatments || []).join(', ');
+        if (p.notes || tags) {
+          memoryText += `- ${p.name} (${p.age || '?'}aa): ${treatments || 'N/A'}${p.notes ? ' | ' + p.notes.slice(0, 100) : ''}${tags ? ' | Tag: ' + tags : ''}\n`;
+        }
+      });
+    }
+
+    if (treatmentPatterns.length > 0) {
+      memoryText += `\n=== TRATTAMENTI PIÙ FREQUENTI IN QUESTA CLINICA ===\n`;
+      treatmentPatterns.forEach(t => {
+        const treatments = (t.treatments || []).join(', ');
+        if (treatments) memoryText += `- ${treatments}: ${t.count} pazienti\n`;
+      });
+    }
+
+    return memoryText;
+  } catch (err) {
+    console.error('[BUR OS] loadClinicMemory error:', err.message);
+    return '';
+  }
+}
 
 // ── BUILD CONTEXT ─────────────────────────────────────────────
 async function buildNovaContext(roleId, clinicId) {
   try {
-    const today = new Date().toLocaleDateString('it-IT', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+    const today = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     const todayISO = new Date().toISOString().split('T')[0];
 
     // 1. Dati clinica
@@ -217,9 +269,9 @@ async function buildNovaContext(roleId, clinicId) {
     const clinic = clinicRows[0];
     if (!clinic) return null;
 
-    // 2. Staff in sede oggi
+    // 2. Staff attivo
     const staffRows = await sql`
-      SELECT name, role, avatar_color FROM staff
+      SELECT name, role FROM staff
       WHERE clinic_id = ${clinicId} AND active = TRUE
       ORDER BY role
     `;
@@ -234,45 +286,55 @@ async function buildNovaContext(roleId, clinicId) {
       LIMIT 20
     `;
 
-    // 4. Prenotazioni in attesa
-    const bookingRows = await sql`
-      SELECT p.trattamento, p.note, p.data_richiesta, paz.nome, paz.cognome
-      FROM prenotazioni p
-      JOIN pazienti paz ON paz.id = p.paziente_id
-      WHERE p.clinic_id = ${clinicId} AND p.status = 'in_attesa'
-      ORDER BY p.created_at DESC
+    // 4. Prossimi 7 giorni (per pianificazione)
+    const upcomingRows = await sql`
+      SELECT name, treatments, next_appointment
+      FROM patients
+      WHERE clinic_id = ${clinicId}
+        AND next_appointment > NOW()
+        AND next_appointment < NOW() + INTERVAL '7 days'
+        AND DATE(next_appointment) != ${todayISO}
+      ORDER BY next_appointment ASC
       LIMIT 10
     `.catch(() => []);
 
-    // 5. Messaggi non letti (urgenti)
+    // 5. Messaggi non letti
     const unreadMsgs = await sql`
       SELECT COUNT(*) as count FROM staff_messages
       WHERE clinic_id = ${clinicId} AND read = FALSE
-    `.catch(() => [{count:0}]);
+    `.catch(() => [{ count: 0 }]);
 
-    // 6. Assembla context dinamico
+    // 6. Memoria clinica (apprendimento persistente)
+    const clinicMemory = await loadClinicMemory(clinicId);
+
+    // 7. Assembla contesto
     const clinicContext = `
 === CONTESTO CLINICA — ${today} ===
 
 CLINICA: ${clinic.name}
 SEDE: ${clinic.city || 'N/A'}
-SPECIALIZZAZIONI: ${(clinic.specialties || []).join(', ') || 'N/A'}
+SPECIALIZZAZIONI: ${(clinic.specialties || []).join(', ') || 'Medicina Estetica'}
 
-STAFF IN SEDE OGGI (${staffRows.length} membri):
+STAFF ATTIVO (${staffRows.length} membri):
 ${staffRows.map(s => `- ${s.name} [${s.role}]`).join('\n') || '- Nessuno configurato'}
 
-PAZIENTI OGGI (${patientRows.length}):
-${patientRows.length === 0 ? '- Nessun appuntamento' : patientRows.map(p => {
-  const ora = p.next_appointment ? new Date(p.next_appointment).toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'}) : 'N/A';
-  const alert = (p.tags || []).includes('ATTENZIONE') || (p.notes || '').toLowerCase().includes('farmac') || (p.notes || '').toLowerCase().includes('allergi') ? ' ⚠️ VERIFICA ANAMNESI' : '';
-  return `- ${ora} | ${p.name} (${p.age || '?'} anni) | ${(p.treatments || []).join(', ') || 'N/A'}${alert}${p.notes ? ' | Note: ' + p.notes.slice(0, 100) : ''}`;
+AGENDA OGGI (${patientRows.length} pazienti):
+${patientRows.length === 0 ? '- Nessun appuntamento oggi' : patientRows.map(p => {
+  const ora = p.next_appointment ? new Date(p.next_appointment).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
+  const isVip = (p.tags || []).includes('VIP');
+  const hasAlert = (p.notes || '').toLowerCase().includes('allergi') || (p.notes || '').toLowerCase().includes('farmac') || (p.tags || []).includes('ATTENZIONE');
+  return `- ${ora} | ${p.name}${isVip ? ' ⭐VIP' : ''} (${p.age || '?'}aa) | ${(p.treatments || []).join(', ') || 'N/A'}${hasAlert ? ' ⚠️ VERIFICA ANAMNESI' : ''}${p.notes ? ' | Note: ' + p.notes.slice(0, 120) : ''}`;
 }).join('\n')}
 
-PRENOTAZIONI IN ATTESA: ${bookingRows.length}
-${bookingRows.slice(0,3).map(b => `- ${b.nome} ${b.cognome}: ${b.trattamento} (${b.data_richiesta || 'data da definire'})`).join('\n') || ''}
+PROSSIMI 7 GIORNI (${upcomingRows.length} appuntamenti):
+${upcomingRows.slice(0, 5).map(p => {
+  const data = new Date(p.next_appointment).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+  const ora = new Date(p.next_appointment).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return `- ${data} ${ora} | ${p.name} | ${(p.treatments || []).join(', ') || 'N/A'}`;
+}).join('\n') || '- Nessun appuntamento programmato'}
 
 MESSAGGI NON LETTI: ${unreadMsgs[0]?.count || 0}
-
+${clinicMemory}
 === FINE CONTESTO ===
 `;
 
@@ -284,18 +346,33 @@ MESSAGGI NON LETTI: ${unreadMsgs[0]?.count || 0}
   }
 }
 
-// ── ROLE PROMPTS DINAMICI ─────────────────────────────────────
+// ── ROLE PROMPTS ──────────────────────────────────────────────
 function buildNovaPrompt(roleId, clinicContext, knowledgeBase) {
   const rolePersonality = {
-    doctor: `Sei NOVA, supervisore AI clinico per medici estetici della clinica indicata nel contesto.
-Hai accesso alla knowledge base completa di medicina estetica italiana e ai dati real-time della clinica.
-CARATTERE: esperto, preciso, proattivo. Non aspetti domande — avverti prima che si sbagli.
-PRIORITÀ: sicurezza paziente sempre prima di tutto. Mai suggerire dosaggi senza contesto clinico completo.
-STILE: professionale, conciso. Max 4 righe per risposta. Usa ⚠️ alert critici, ✅ conferme, 💡 suggerimenti.
+
+    doctor: `Sei NOVA, collaboratore clinico AI integrato in Operantis per medici di medicina estetica.
+
+IDENTITÀ: Non sei un chatbot. Sei un collega clinico digitale. Hai studiato medicina estetica, conosci i protocolli, i prodotti, le dosi, le emergenze. Sei sempre presente durante le sedute.
+
+COMPORTAMENTO:
+- Parli come un collega medico esperto, non come un assistente
+- Anticipi i problemi prima che accadano
+- Se vedi un paziente con allergie o note critiche nell'agenda, lo dici subito senza aspettare che il medico chieda
+- Conosci i pazienti della clinica — li hai "visti" nell'agenda e nelle cartelle
+- Se il medico dice "sto facendo il filler alle labbra" capisci il contesto e aiuti con dosi, tecnica, precauzioni
+- Se c'è un'emergenza (occlusione vascolare, reazione) dai istruzioni immediate e chiare
+
+STILE:
+- Conciso ma completo: max 5 righe normalmente, illimitato in emergenze
+- Usa ⚠️ per alert critici, ✅ per conferme, 💡 per suggerimenti clinici, 🚨 per emergenze
+- Non ripetere quello che il medico sa già — vai al punto
+- Se non sei sicuro di qualcosa di specifico, dillo chiaramente
+
+LIMITE ETICO: Non prescrivere mai farmaci senza che ci sia un medico. Sei supporto, non sostituzione.
+
 Rispondi SEMPRE in italiano.`,
 
-    assistant: `Sei NOVA, assistente AI per assistenti medici.
-Hai accesso ai dati real-time della clinica e ai protocolli operativi.
+    assistant: `Sei NOVA, assistente AI per assistenti medici in clinica estetica.
 CARATTERE: operativo, pratico, orientato ai dettagli. Dai istruzioni step-by-step.
 PRIORITÀ: preparazione sala perfetta, checklist complete, supporto al medico.
 STILE: diretto, usa ✅ step ok, 📋 checklist, ⏱️ timing. Max 4 righe.
@@ -307,29 +384,25 @@ PRIORITÀ: sterilizzazione, farmaci, emergenze, protocolli.
 STILE: preciso e diretto. Usa 🔴 emergenze, ⚠️ rischi, ✅ conformità. Max 4 righe.
 Rispondi SEMPRE in italiano.`,
 
-    ceo: `Sei NOVA, advisor strategico AI per il CEO.
-Hai accesso ai KPI, allo staff, ai pazienti e ai dati finanziari della clinica.
+    ceo: `Sei NOVA, advisor strategico AI per il CEO della clinica.
 CARATTERE: executive, orientato ai numeri e alle decisioni. Vai al punto.
-PRIORITÀ: fatturato, performance staff, ottimizzazione operativa.
-STILE: diretto, usa 📊 dati, ⚡ azioni urgenti, 💰 finanza. Max 5 righe.
+PRIORITÀ: performance clinica, fatturato, staff, pazienti.
+STILE: diretto, usa 📊 dati, ⚡ azioni urgenti. Max 5 righe.
 Rispondi SEMPRE in italiano.`,
 
     receptionist: `Sei NOVA, assistente AI per receptionist di clinica estetica.
-Hai accesso all'agenda, ai pazienti e ai pagamenti in real-time.
-CARATTERE: organizzata, orientata al paziente, proattiva sulle comunicazioni.
+CARATTERE: organizzata, orientata al paziente, proattiva.
 PRIORITÀ: agenda ottimizzata, zero no-show, esperienza paziente eccellente.
 STILE: caldo e professionale. Usa 📅 agenda, 📞 chiamate, 💬 messaggi. Max 4 righe.
 Rispondi SEMPRE in italiano.`,
 
     legal: `Sei NOVA, consulente AI legale per cliniche di medicina estetica.
-Conosci GDPR, normativa sanitaria italiana, responsabilità medica, consensi informati.
 CARATTERE: preciso, normativo, orientato alla compliance.
-PRIORITÀ: proteggere la clinica legalmente, prevenire rischi, mantenere conformità.
-STILE: formale e preciso. Usa 📋 documenti, ⚠️ scadenze, ✅ conformità. Max 4 righe.
+PRIORITÀ: GDPR, consensi, normativa sanitaria italiana, responsabilità medica.
+STILE: formale. Usa 📋 documenti, ⚠️ scadenze, ✅ conformità. Max 4 righe.
 Rispondi SEMPRE in italiano.`,
 
-    marketing: `Sei NOVA, strategist AI per il marketing di cliniche estetiche.
-Conosci i trend del settore, le piattaforme social, le campagne per cliniche mediche in Italia.
+    marketing: `Sei NOVA, strategist AI per marketing di cliniche estetiche italiane.
 CARATTERE: creativo e data-driven. Proponi azioni concrete e misurabili.
 PRIORITÀ: acquisizione pazienti, retention, brand positioning.
 STILE: energico. Usa 📈 crescita, 📱 social, ⭐ reputazione. Max 4 righe.
@@ -347,24 +420,42 @@ ${knowledgeBase}
 
 ISTRUZIONI OPERATIVE:
 - Usa i dati del contesto clinica per personalizzare ogni risposta
-- Se un paziente oggi ha note o alert, menzionali proattivamente
-- Se vedi problemi nell'agenda o nello staff, segnalali
-- Impara da ogni correzione che ricevi — se l'utente dice che hai sbagliato, chiedi spiegazione e aggiornati
-- Ogni informazione clinica condivisa dall'utente viene memorizzata per migliorare BUR OS`;
+- Se un paziente oggi ha allergie o note critiche, segnalalo proattivamente
+- Impara da ogni correzione ricevuta — se l'utente corregge qualcosa, memorizzalo
+- I dati della clinica (pazienti, trattamenti, pattern) arricchiscono la tua conoscenza nel tempo`;
 }
 
-// ── FEEDBACK LEARNING ─────────────────────────────────────────
+// ── FEEDBACK E APPRENDIMENTO ──────────────────────────────────
 async function saveNovaFeedback(clinicId, roleId, question, novaAnswer, feedback, correction) {
   try {
-    // Salva per future analisi e training
     await sql`
       INSERT INTO nova_feedback (clinic_id, role_id, question, nova_answer, feedback, correction, created_at)
       VALUES (${clinicId}, ${roleId}, ${question}, ${novaAnswer}, ${feedback}, ${correction || null}, NOW())
     `.catch(() => {
-      // Tabella potrebbe non esistere ancora — log silenzioso
-      console.log('[BUR OS] nova_feedback table not ready yet');
+      console.log('[BUR OS] nova_feedback: tabella non ancora creata');
     });
   } catch {}
 }
+
+// ── CREA TABELLA FEEDBACK SE NON ESISTE ──────────────────────
+async function ensureNovaFeedbackTable() {
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS nova_feedback (
+        id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+        clinic_id UUID,
+        role_id TEXT,
+        question TEXT,
+        nova_answer TEXT,
+        feedback TEXT,
+        correction TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `;
+  } catch {}
+}
+
+// Crea tabella all'avvio
+ensureNovaFeedbackTable();
 
 module.exports = { buildNovaContext, buildNovaPrompt, saveNovaFeedback, KNOWLEDGE_BASE };
