@@ -2,17 +2,17 @@
 // BUR OS — Backend Runtime
 // Binary Unified Runtime — Node.js + Express
 // ============================================================
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { stateRead, stateWrite, logWrite, now } = require('./modules/state');
 const daemon = require('./daemon/valueDaemon');
 const apiRoutes = require('./routes/api');
+const authRoutes = require('./routes/auth');
+const bdeRoutes = require('./routes/bde-routes');
 
 const PORT = parseInt(process.env.PORT) || 3000;
 const BUR_VERSION = process.env.GOD_VERSION || '2.0.0';
-
 const app = express();
 
 // ── CORS ─────────────────────────────────────────────────────
@@ -25,7 +25,7 @@ app.use(cors({
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-device-fingerprint']
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -39,9 +39,8 @@ app.use((req, res, next) => {
 
 // ── API Routes ────────────────────────────────────────────────
 app.use('/api/v2', apiRoutes);
-
-const authRoutes = require('./routes/auth');
 app.use('/api/v2/operantis', authRoutes);
+app.use('/api/v2/operantis', bdeRoutes);
 
 // ── Root ─────────────────────────────────────────────────────
 app.get('/', (req, res) => {
@@ -52,8 +51,14 @@ app.get('/', (req, res) => {
     status: s.system?.status || 'IDLE',
     mode: s.system?.mode || 'NORMAL',
     daemon: daemon.isRunning() ? 'RUNNING' : 'STOPPED',
-    uptime: s.metrics?.uptime_start
+    uptime: s.metrics?.uptime_start,
+    modules: ['operantis', 'bde', 'treasury', 'reputation', 'nova']
   });
+});
+
+// ── Health ───────────────────────────────────────────────────
+app.get('/api/v2/health', (req, res) => {
+  res.json({ status: 'ok', version: BUR_VERSION, ts: new Date().toISOString() });
 });
 
 // ── 404 ───────────────────────────────────────────────────────
@@ -73,12 +78,15 @@ app.listen(PORT, () => {
   stateWrite('SYSTEM', { system: { status: 'IDLE', mode: 'NORMAL' } });
   logWrite('SYSTEM', 'boot', { version: BUR_VERSION }, { port: PORT }, 'SUCCESS');
 
-  if (process.env.GROQ_API_KEY) {
+  if (process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY) {
     daemon.start();
     console.log('[BUR OS] VALUE_DAEMON avviato');
   } else {
-    console.warn('[BUR OS] GROQ_API_KEY mancante — daemon non avviato');
+    console.warn('[BUR OS] API KEY mancante — daemon non avviato');
   }
+
+  console.log('[BUR OS] BDE Economy Engine attivo');
+  console.log('[BUR OS] Treasury recycling ogni 2 ore');
 });
 
 process.on('SIGTERM', () => { daemon.stop(); process.exit(0); });
