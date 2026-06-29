@@ -16,17 +16,13 @@ const PORT = parseInt(process.env.PORT) || 3000;
 const BUR_VERSION = process.env.GOD_VERSION || '2.0.0';
 const app = express();
 
-// ── CORS — accetta tutto, restringere in produzione ───────────
+// ── CORS ─────────────────────────────────────────────────────
 app.use(cors({
   origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-device-fingerprint', 'Origin']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-device-fingerprint']
 }));
-
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
-
 // ── Request logger ────────────────────────────────────────────
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
