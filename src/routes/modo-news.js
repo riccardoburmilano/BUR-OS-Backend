@@ -19,6 +19,11 @@ const SOURCES = {
     { name:'ANSA Economia',   url:'https://www.ansa.it/sito/notizie/economia/economia_rss.xml',             cat:'Finanza', lang:'it', priority:1 },
     { name:'ANSA Sport',      url:'https://www.ansa.it/sito/notizie/sport/sport_rss.xml',                   cat:'Sport',   lang:'it', priority:1 },
     { name:'ANSA Mondo',      url:'https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml',                   cat:'Mondo',   lang:'it', priority:1 },
+    { name:'ANSA Tecnologia', url:'https://www.ansa.it/sito/notizie/tecnologia/tecnologia_rss.xml',         cat:'Tech',    lang:'it', priority:1 },
+    { name:'ANSA Politica',   url:'https://www.ansa.it/sito/notizie/politica/politica_rss.xml',             cat:'Politica',lang:'it', priority:1 },
+    { name:'Corriere Sport',  url:'https://xml2.corriereobjects.it/rss/sport.xml',                          cat:'Sport',   lang:'it', priority:2 },
+    { name:'Gazzetta F1',     url:'https://www.gazzetta.it/rss/formula1.xml',                               cat:'Sport',   lang:'it', priority:2 },
+    { name:'Corriere',        url:'https://xml2.corriereobjects.it/rss/homepage.xml',                       cat:'Italia',  lang:'it', priority:2 },
     { name:'Repubblica',      url:'https://www.repubblica.it/rss/homepage/rss2.0.xml',                      cat:'Italia',  lang:'it', priority:2 },
     { name:'Corriere',        url:'https://xml2.corriereobjects.it/rss/homepage.xml',                       cat:'Italia',  lang:'it', priority:2 },
     { name:'Sole 24 Ore',     url:'https://www.ilsole24ore.com/rss/economia.xml',                           cat:'Finanza', lang:'it', priority:2 },
@@ -274,7 +279,17 @@ router.get('/news', async (req, res) => {
 
     const { cat, lang, limit = 50, forecast_only } = req.query;
     if (cat) articles = articles.filter(a => a.cat.toLowerCase() === cat.toLowerCase());
-    if (lang) articles = articles.filter(a => a.lang === lang);
+    // Se lang=it, dai 70% italiane e 30% internazionali (per contesto globale)
+    if (lang === 'it') {
+      const italiane = articles.filter(a => a.lang === 'it');
+      const internazionali = articles.filter(a => a.lang !== 'it');
+      const nIt = Math.ceil(parseInt(limit) * 0.7);
+      const nEn = Math.floor(parseInt(limit) * 0.3);
+      articles = [...italiane.slice(0, nIt), ...internazionali.slice(0, nEn)]
+        .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+    } else if (lang) {
+      articles = articles.filter(a => a.lang === lang);
+    }
     if (forecast_only === 'true') articles = articles.filter(a => a.isForecast);
 
     res.json({
