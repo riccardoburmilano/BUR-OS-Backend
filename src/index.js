@@ -10,12 +10,11 @@ const daemon = require('./daemon/valueDaemon');
 const apiRoutes = require('./routes/api');
 const authRoutes = require('./routes/auth');
 const bdeRoutes = require('./routes/bde-routes');
+const modoNewsRoutes = require('./routes/modo-news');
 
 const PORT = parseInt(process.env.PORT) || 3000;
 const BUR_VERSION = process.env.GOD_VERSION || '2.0.0';
 const app = express();
-const modoNewsRoutes = require('./routes/modo-news');
-app.use('/api/v2/modo', modoNewsRoutes);
 
 // ── CORS ─────────────────────────────────────────────────────
 app.use(cors({
@@ -23,8 +22,8 @@ app.use(cors({
     'https://operantis.pages.dev',
     'https://peaceful-crepe-4757e9.netlify.app',
     'http://localhost:5173',
-    'http://localhost:3000'
-'null'
+    'http://localhost:3000',
+    'null'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -44,6 +43,7 @@ app.use((req, res, next) => {
 app.use('/api/v2', apiRoutes);
 app.use('/api/v2/operantis', authRoutes);
 app.use('/api/v2/operantis', bdeRoutes);
+app.use('/api/v2/modo', modoNewsRoutes);
 
 // ── Root ─────────────────────────────────────────────────────
 app.get('/', (req, res) => {
@@ -55,7 +55,7 @@ app.get('/', (req, res) => {
     mode: s.system?.mode || 'NORMAL',
     daemon: daemon.isRunning() ? 'RUNNING' : 'STOPPED',
     uptime: s.metrics?.uptime_start,
-    modules: ['operantis', 'bde', 'treasury', 'reputation', 'nova']
+    modules: ['operantis', 'bde', 'treasury', 'reputation', 'nova', 'modo-news']
   });
 });
 
@@ -90,6 +90,7 @@ app.listen(PORT, () => {
 
   console.log('[BUR OS] BDE Economy Engine attivo');
   console.log('[BUR OS] Treasury recycling ogni 2 ore');
+  console.log('[BUR OS] MODO News Aggregator attivo');
 });
 
 process.on('SIGTERM', () => { daemon.stop(); process.exit(0); });
