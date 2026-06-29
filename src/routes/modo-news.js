@@ -104,6 +104,42 @@ function isForecastable(text) {
   return FORECAST_KW.some(kw => t.includes(kw));
 }
 
+// ── SCRAPING ARTICOLO COMPLETO ────────────────────────────────
+async function scrapeArticleText(url) {
+  if (!url) return null;
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; MODO-NewsBot/1.0)',
+        'Accept': 'text/html',
+      },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!resp.ok) return null;
+    const html = await resp.text();
+
+    // Estrai testo dai tag <p> — funziona su BBC, ANSA, Reuters, Bloomberg
+    const paragraphs = [];
+    const pMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gi) || [];
+    pMatches.forEach(p => {
+      const text = p.replace(/<[^>]+>/g, '').trim();
+      // Filtra paragrafi troppo corti o di navigazione
+      if (text.length > 60 && !text.includes('©') && !text.includes('Cookie') && !text.includes('Subscribe')) {
+        paragraphs.push(text);
+      }
+    });
+
+    if (paragraphs.length < 2) return null;
+    // Prendi i primi 8 paragrafi (abbastanza per un articolo)
+    return paragraphs.slice(0, 8).join('
+
+');
+  } catch(e) {
+    console.log('[MODO Scrape]', e.message);
+    return null;
+  }
+}
+
 // ── FETCH RSS ─────────────────────────────────────────────────
 async function fetchRSS(source) {
   try {
