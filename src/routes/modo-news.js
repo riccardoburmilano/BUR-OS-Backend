@@ -12,18 +12,32 @@ const router = express.Router();
 // NewsAPI richiede key — passala come env NEWSAPI_KEY
 
 const SOURCES = {
-  // RSS gratuiti — nessuna key
+  // RSS — aggiornamento continuo, priorità breaking news
   rss: [
-    { name:'ANSA',        url:'https://www.ansa.it/sito/notizie/topnews/topnews_rss.xml',    cat:'Italia',     lang:'it' },
-    { name:'Repubblica',  url:'https://www.repubblica.it/rss/homepage/rss2.0.xml',           cat:'Italia',     lang:'it' },
-    { name:'Sole 24 Ore', url:'https://www.ilsole24ore.com/rss/economia.xml',                cat:'Finanza',    lang:'it' },
-    { name:'Wired IT',    url:'https://www.wired.it/feed/rss',                               cat:'Tech',       lang:'it' },
-    { name:'BBC World',   url:'https://feeds.bbci.co.uk/news/world/rss.xml',                 cat:'Mondo',      lang:'en' },
-    { name:'Reuters',     url:'https://feeds.reuters.com/reuters/businessNews',              cat:'Finanza',    lang:'en' },
-    { name:'TechCrunch',  url:'https://techcrunch.com/feed/',                                cat:'Tech',       lang:'en' },
-    { name:'Bloomberg',   url:'https://feeds.bloomberg.com/markets/news.rss',               cat:'Finanza',    lang:'en' },
-    { name:'Sky Sport',   url:'https://sport.sky.it/rss/sport.xml',                         cat:'Sport',      lang:'it' },
-    { name:'Gazzetta',    url:'https://www.gazzetta.it/rss/home.xml',                        cat:'Sport',      lang:'it' },
+    // ── ITALIA — breaking ──────────────────────────────────
+    { name:'ANSA Breaking',   url:'https://www.ansa.it/sito/notizie/topnews/topnews_rss.xml',                cat:'Italia',  lang:'it', priority:1 },
+    { name:'ANSA Economia',   url:'https://www.ansa.it/sito/notizie/economia/economia_rss.xml',             cat:'Finanza', lang:'it', priority:1 },
+    { name:'ANSA Sport',      url:'https://www.ansa.it/sito/notizie/sport/sport_rss.xml',                   cat:'Sport',   lang:'it', priority:1 },
+    { name:'ANSA Mondo',      url:'https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml',                   cat:'Mondo',   lang:'it', priority:1 },
+    { name:'Repubblica',      url:'https://www.repubblica.it/rss/homepage/rss2.0.xml',                      cat:'Italia',  lang:'it', priority:2 },
+    { name:'Corriere',        url:'https://xml2.corriereobjects.it/rss/homepage.xml',                       cat:'Italia',  lang:'it', priority:2 },
+    { name:'Sole 24 Ore',     url:'https://www.ilsole24ore.com/rss/economia.xml',                           cat:'Finanza', lang:'it', priority:2 },
+    { name:'Sky TG24',        url:'https://tg24.sky.it/rss.xml',                                            cat:'Italia',  lang:'it', priority:1 },
+    { name:'Gazzetta Sport',  url:'https://www.gazzetta.it/rss/home.xml',                                   cat:'Sport',   lang:'it', priority:2 },
+    { name:'Sky Sport',       url:'https://sport.sky.it/rss/sport.xml',                                     cat:'Sport',   lang:'it', priority:2 },
+    { name:'Wired IT',        url:'https://www.wired.it/feed/rss',                                          cat:'Tech',    lang:'it', priority:3 },
+    // ── INTERNAZIONALE — breaking ──────────────────────────
+    { name:'BBC Breaking',    url:'https://feeds.bbci.co.uk/news/rss.xml',                                  cat:'Mondo',   lang:'en', priority:1 },
+    { name:'BBC World',       url:'https://feeds.bbci.co.uk/news/world/rss.xml',                            cat:'Mondo',   lang:'en', priority:1 },
+    { name:'BBC Business',    url:'https://feeds.bbci.co.uk/news/business/rss.xml',                         cat:'Finanza', lang:'en', priority:1 },
+    { name:'BBC Tech',        url:'https://feeds.bbci.co.uk/news/technology/rss.xml',                       cat:'Tech',    lang:'en', priority:1 },
+    { name:'Reuters Top',     url:'https://feeds.reuters.com/reuters/topNews',                              cat:'Mondo',   lang:'en', priority:1 },
+    { name:'Reuters Business',url:'https://feeds.reuters.com/reuters/businessNews',                         cat:'Finanza', lang:'en', priority:1 },
+    { name:'Reuters Tech',    url:'https://feeds.reuters.com/reuters/technologyNews',                       cat:'Tech',    lang:'en', priority:1 },
+    { name:'Bloomberg',       url:'https://feeds.bloomberg.com/markets/news.rss',                           cat:'Finanza', lang:'en', priority:2 },
+    { name:'TechCrunch',      url:'https://techcrunch.com/feed/',                                           cat:'Tech',    lang:'en', priority:2 },
+    { name:'AP News',         url:'https://rsshub.app/apnews/topics/apf-topnews',                          cat:'Mondo',   lang:'en', priority:1 },
+    { name:'Financial Times', url:'https://www.ft.com/rss/home',                                            cat:'Finanza', lang:'en', priority:2 },
   ],
 
   // GNews API — key opzionale, piano gratuito 100 req/giorno
@@ -44,7 +58,7 @@ function parseRSS(xml, source) {
   const items = [];
   const itemMatches = xml.match(/<item>([\s\S]*?)<\/item>/g) || [];
 
-  itemMatches.slice(0, 8).forEach(item => {
+  itemMatches.slice(0, 15).forEach(item => {
     const get = (tag) => {
       const m = item.match(new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>|<${tag}[^>]*>([^<]*)<\\/${tag}>`));
       return m ? (m[1] || m[2] || '').trim() : '';
@@ -65,6 +79,7 @@ function parseRSS(xml, source) {
         sourceName: source.name,
         cat: source.cat,
         lang: source.lang,
+        priority: source.priority || 3,
         img,
         publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
         isForecast: isForecastable(title + ' ' + desc),
@@ -160,7 +175,7 @@ async function fetchNewsAPI(key, country = 'it', category = 'general') {
 
 // ── CACHE IN MEMORIA ──────────────────────────────────────────
 let cache = { articles: [], lastFetch: 0 };
-const CACHE_TTL = 15 * 60 * 1000; // 15 minuti
+const CACHE_TTL = 2 * 60 * 1000; // 2 minuti — notizie in tempo reale
 
 async function aggregateAll() {
   const now = Date.now();
@@ -197,10 +212,17 @@ async function aggregateAll() {
     return true;
   });
 
-  // Ordina per data più recente
-  unique.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+  // Ordina per data più recente — breaking news in cima
+  unique.sort((a, b) => {
+    const ta = new Date(b.publishedAt).getTime();
+    const tb = new Date(a.publishedAt).getTime();
+    // Priorità alla data, poi alla fonte priority
+    const dateDiff = ta - tb;
+    if (Math.abs(dateDiff) > 5 * 60 * 1000) return dateDiff; // >5 min di differenza → ordina per data
+    return (a.priority || 3) - (b.priority || 3); // stessa fascia oraria → priorità fonte
+  });
 
-  cache = { articles: unique.slice(0, 100), lastFetch: now };
+  cache = { articles: unique.slice(0, 150), lastFetch: now };
   console.log(`[MODO News] ${unique.length} articoli aggregati da ${results.length} fonti`);
   return cache.articles;
 }
