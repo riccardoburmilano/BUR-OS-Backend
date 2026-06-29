@@ -14,6 +14,8 @@ const bdeRoutes = require('./routes/bde-routes');
 const PORT = parseInt(process.env.PORT) || 3000;
 const BUR_VERSION = process.env.GOD_VERSION || '2.0.0';
 const app = express();
+const modoNewsRoutes = require('./routes/modo-news');
+app.use('/api/v2/modo', modoNewsRoutes);
 
 // ── CORS ─────────────────────────────────────────────────────
 app.use(cors({
