@@ -335,37 +335,32 @@ Rispondi SOLO con JSON valido (no markdown, no backtick):
 });
 
 // POST /api/v2/modo/chat
-// Chatbox redazione per Matteo — risponde a domande editoriali
+// Assistente editoriale via Groq (gratuito)
 router.post('/chat', async (req, res) => {
   const { message, context } = req.body;
   if (!message) return res.status(400).json({ ok: false, error: 'message mancante' });
 
-  const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
-  if (!ANTHROPIC_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY non configurata' });
+  const GROQ_KEY = process.env.GROQ_API_KEY;
+  if (!GROQ_KEY) return res.status(500).json({ ok: false, error: 'GROQ_API_KEY non configurata' });
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 800,
-        system: `Sei l'assistente editoriale di MODO, giornale italiano AI-native diretto da Riccardo e Matteo. 
-Aiuti Matteo (il direttore editoriale) a verificare fatti, migliorare articoli, trovare fonti, controllare dati, suggerire titoli alternativi.
-Rispondi in italiano, in modo diretto e professionale. Sei conciso ma completo.
-${context ? `Contesto articolo corrente: ${context}` : ''}`,
-        messages: [{ role: 'user', content: message }],
+        model: 'llama-3.1-8b-instant',
+        max_tokens: 600,
+        temperature: 0.3,
+        messages: [
+          { role: 'system', content: `Sei l'assistente editoriale di MODO, giornale italiano AI-native. Aiuti a verificare fatti, migliorare titoli, trovare fonti. Rispondi in italiano, diretto e professionale.${context ? ' Contesto: ' + context : ''}` },
+          { role: 'user', content: message }
+        ],
       }),
     });
 
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message);
-    const text = data.content?.[0]?.text || '';
-    res.json({ ok: true, reply: text });
+    res.json({ ok: true, reply: data.choices?.[0]?.message?.content || '' });
   } catch(e) {
     res.status(500).json({ ok: false, error: e.message });
   }
