@@ -24,8 +24,7 @@ app.use(cors({
     'https://peaceful-crepe-4757e9.netlify.app',
     'http://localhost:5173',
     'http://localhost:3000'
-    'https://modo.bur.os',  // o qualsiasi dominio userai
-'null',  // per i file HTML aperti localmente durante sviluppo
+'null'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
