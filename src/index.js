@@ -91,3 +91,5 @@ process.on('SIGTERM', () => { daemon.stop(); process.exit(0); });
 process.on('SIGINT', () => { daemon.stop(); process.exit(0); });
 
 module.exports = app;
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
