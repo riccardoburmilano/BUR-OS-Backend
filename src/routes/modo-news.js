@@ -258,4 +258,95 @@ router.post('/refresh', async (req, res) => {
   }
 });
 
+// POST /api/v2/modo/generate
+// Genera articolo MODO da una notizia grezza via Anthropic API
+router.post('/generate', async (req, res) => {
+  const { sourceTitle, sourceDesc, sourceName, catLabel, isForecast } = req.body;
+  if (!sourceTitle) return res.status(400).json({ ok: false, error: 'sourceTitle mancante' });
+
+  const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+  if (!ANTHROPIC_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY non configurata' });
+
+  try {
+    const prompt = `Sei un giornalista di MODO, testata italiana AI-native seria e professionale diretta da Riccardo e Matteo.
+
+Riscrivi questa notizia come articolo giornalistico italiano di qualità per MODO.
+Tono: giornalistico moderno, accessibile, preciso. Zero clickbait. Zero bugie.
+
+Fonte: ${sourceName}
+Titolo originale: ${sourceTitle}
+Descrizione: ${sourceDesc || 'Non disponibile'}
+
+Rispondi SOLO con JSON valido (no markdown, no backtick):
+{
+  "titolo": "Titolo italiano chiaro e professionale, max 90 caratteri",
+  "sommario": "Apertura che riassume il fatto, max 120 caratteri",
+  "corpo": "Articolo completo in italiano, 180-280 parole, stile giornalistico. Paragrafi separati da \\n\\n. Cita la fonte originale alla fine.",
+  "is_previsione": ${isForecast ? 'true' : 'false'}
+}`;
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
+
+    const text = data.content?.[0]?.text || '{}';
+    const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+
+    res.json({ ok: true, ...parsed });
+  } catch(e) {
+    console.error('[MODO Generate]', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// POST /api/v2/modo/chat
+// Chatbox redazione per Matteo — risponde a domande editoriali
+router.post('/chat', async (req, res) => {
+  const { message, context } = req.body;
+  if (!message) return res.status(400).json({ ok: false, error: 'message mancante' });
+
+  const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+  if (!ANTHROPIC_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY non configurata' });
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 800,
+        system: `Sei l'assistente editoriale di MODO, giornale italiano AI-native diretto da Riccardo e Matteo. 
+Aiuti Matteo (il direttore editoriale) a verificare fatti, migliorare articoli, trovare fonti, controllare dati, suggerire titoli alternativi.
+Rispondi in italiano, in modo diretto e professionale. Sei conciso ma completo.
+${context ? `Contesto articolo corrente: ${context}` : ''}`,
+        messages: [{ role: 'user', content: message }],
+      }),
+    });
+
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
+    const text = data.content?.[0]?.text || '';
+    res.json({ ok: true, reply: text });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 module.exports = router;
