@@ -400,4 +400,74 @@ router.post('/chat', async (req, res) => {
   }
 });
 
+// POST /api/v2/modo/publish
+// Salva articolo pubblicato su Neon DB per il feed pubblico MODO
+router.post('/publish', async (req, res) => {
+  try {
+    const { neon } = require('@neondatabase/serverless');
+    const sql = neon(process.env.DATABASE_URL);
+
+    // Crea tabella se non esiste
+    await sql`
+      CREATE TABLE IF NOT EXISTS modo_articles (
+        id TEXT PRIMARY KEY,
+        titolo TEXT NOT NULL,
+        sommario TEXT,
+        corpo TEXT,
+        categoria TEXT,
+        fonte TEXT,
+        source_url TEXT,
+        img TEXT,
+        is_forecast BOOLEAN DEFAULT FALSE,
+        has_ads BOOLEAN DEFAULT FALSE,
+        ads_kws TEXT[],
+        wiki_kws TEXT[],
+        published_at TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `;
+
+    const { id, titolo, sommario, corpo, categoria, fonte, sourceUrl, img,
+            isForecast, hasAds, adsKws, wikiKws, publishedAt } = req.body;
+
+    await sql`
+      INSERT INTO modo_articles (id, titolo, sommario, corpo, categoria, fonte, source_url, img, is_forecast, has_ads, ads_kws, wiki_kws, published_at)
+      VALUES (${id||Date.now().toString()}, ${titolo}, ${sommario||''}, ${corpo}, ${categoria||'Mondo'},
+              ${fonte||''}, ${sourceUrl||''}, ${img||null}, ${isForecast||false}, ${hasAds||false},
+              ${adsKws||[]}, ${wikiKws||[]}, ${publishedAt||new Date().toISOString()})
+      ON CONFLICT (id) DO UPDATE SET
+        titolo=EXCLUDED.titolo, sommario=EXCLUDED.sommario, corpo=EXCLUDED.corpo,
+        is_forecast=EXCLUDED.is_forecast, has_ads=EXCLUDED.has_ads,
+        ads_kws=EXCLUDED.ads_kws, wiki_kws=EXCLUDED.wiki_kws
+    `;
+
+    console.log('[MODO] Articolo pubblicato:', titolo?.slice(0,50));
+    res.json({ ok: true, message: 'Articolo pubblicato sul feed MODO' });
+  } catch(e) {
+    console.error('[MODO Publish]', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// GET /api/v2/modo/published
+// Ritorna articoli pubblicati per il feed pubblico
+router.get('/published', async (req, res) => {
+  try {
+    const { neon } = require('@neondatabase/serverless');
+    const sql = neon(process.env.DATABASE_URL);
+    const limit = parseInt(req.query.limit)||50;
+    const cat = req.query.cat;
+
+    let articles;
+    if(cat) {
+      articles = await sql`SELECT * FROM modo_articles WHERE categoria=${cat} ORDER BY published_at DESC LIMIT ${limit}`;
+    } else {
+      articles = await sql`SELECT * FROM modo_articles ORDER BY published_at DESC LIMIT ${limit}`;
+    }
+    res.json({ ok: true, count: articles.length, articles });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 module.exports = router;
