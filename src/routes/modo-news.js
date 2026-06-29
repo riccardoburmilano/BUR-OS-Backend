@@ -131,9 +131,7 @@ async function scrapeArticleText(url) {
 
     if (paragraphs.length < 2) return null;
     // Prendi i primi 8 paragrafi (abbastanza per un articolo)
-    return paragraphs.slice(0, 8).join('
-
-');
+    return paragraphs.slice(0, 8).join('\n\n');
   } catch(e) {
     console.log('[MODO Scrape]', e.message);
     return null;
