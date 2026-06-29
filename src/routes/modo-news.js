@@ -416,71 +416,92 @@ router.post('/chat', async (req, res) => {
 });
 
 // POST /api/v2/modo/publish
-// Salva articolo pubblicato su Neon DB per il feed pubblico MODO
 router.post('/publish', async (req, res) => {
   try {
     const { neon } = require('@neondatabase/serverless');
     const sql = neon(process.env.DATABASE_URL);
 
-    // Crea tabella se non esiste
+    // Crea tabella semplice senza array types (compatibile con tutti i Neon)
     await sql`
       CREATE TABLE IF NOT EXISTS modo_articles (
         id TEXT PRIMARY KEY,
         titolo TEXT NOT NULL,
-        sommario TEXT,
-        corpo TEXT,
-        categoria TEXT,
-        fonte TEXT,
-        source_url TEXT,
+        sommario TEXT DEFAULT '',
+        corpo TEXT DEFAULT '',
+        categoria TEXT DEFAULT 'Mondo',
+        fonte TEXT DEFAULT '',
+        source_url TEXT DEFAULT '',
         img TEXT,
         is_forecast BOOLEAN DEFAULT FALSE,
-        has_ads BOOLEAN DEFAULT FALSE,
-        ads_kws TEXT[],
-        wiki_kws TEXT[],
-        published_at TIMESTAMP DEFAULT NOW(),
-        created_at TIMESTAMP DEFAULT NOW()
+        published_at TIMESTAMPTZ DEFAULT NOW(),
+        created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `;
 
-    const { id, titolo, sommario, corpo, categoria, fonte, sourceUrl, img,
-            isForecast, hasAds, adsKws, wikiKws, publishedAt } = req.body;
+    const { id, titolo, sommario, corpo, categoria, fonte, sourceUrl, img, isForecast, publishedAt } = req.body;
+
+    if(!titolo) return res.status(400).json({ ok: false, error: 'titolo mancante' });
+
+    const artId = String(id || Date.now());
 
     await sql`
-      INSERT INTO modo_articles (id, titolo, sommario, corpo, categoria, fonte, source_url, img, is_forecast, has_ads, ads_kws, wiki_kws, published_at)
-      VALUES (${id||Date.now().toString()}, ${titolo}, ${sommario||''}, ${corpo}, ${categoria||'Mondo'},
-              ${fonte||''}, ${sourceUrl||''}, ${img||null}, ${isForecast||false}, ${hasAds||false},
-              ${adsKws||[]}, ${wikiKws||[]}, ${publishedAt||new Date().toISOString()})
+      INSERT INTO modo_articles (id, titolo, sommario, corpo, categoria, fonte, source_url, img, is_forecast, published_at)
+      VALUES (
+        ${artId},
+        ${titolo},
+        ${sommario || ''},
+        ${corpo || ''},
+        ${categoria || 'Mondo'},
+        ${fonte || ''},
+        ${sourceUrl || ''},
+        ${img || null},
+        ${isForecast || false},
+        ${publishedAt || new Date().toISOString()}
+      )
       ON CONFLICT (id) DO UPDATE SET
-        titolo=EXCLUDED.titolo, sommario=EXCLUDED.sommario, corpo=EXCLUDED.corpo,
-        is_forecast=EXCLUDED.is_forecast, has_ads=EXCLUDED.has_ads,
-        ads_kws=EXCLUDED.ads_kws, wiki_kws=EXCLUDED.wiki_kws
+        titolo = EXCLUDED.titolo,
+        sommario = EXCLUDED.sommario,
+        corpo = EXCLUDED.corpo,
+        categoria = EXCLUDED.categoria,
+        is_forecast = EXCLUDED.is_forecast
     `;
 
-    console.log('[MODO] Articolo pubblicato:', titolo?.slice(0,50));
-    res.json({ ok: true, message: 'Articolo pubblicato sul feed MODO' });
+    console.log('[MODO] Pubblicato:', titolo.slice(0,60));
+    res.json({ ok: true, id: artId, message: 'Pubblicato sul feed MODO' });
+
   } catch(e) {
-    console.error('[MODO Publish]', e.message);
+    console.error('[MODO Publish ERROR]', e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
 // GET /api/v2/modo/published
-// Ritorna articoli pubblicati per il feed pubblico
 router.get('/published', async (req, res) => {
   try {
     const { neon } = require('@neondatabase/serverless');
     const sql = neon(process.env.DATABASE_URL);
-    const limit = parseInt(req.query.limit)||50;
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
     const cat = req.query.cat;
 
     let articles;
-    if(cat) {
-      articles = await sql`SELECT * FROM modo_articles WHERE categoria=${cat} ORDER BY published_at DESC LIMIT ${limit}`;
+    if(cat && cat !== 'tutti') {
+      articles = await sql`
+        SELECT * FROM modo_articles
+        WHERE categoria = ${cat}
+        ORDER BY published_at DESC
+        LIMIT ${limit}
+      `;
     } else {
-      articles = await sql`SELECT * FROM modo_articles ORDER BY published_at DESC LIMIT ${limit}`;
+      articles = await sql`
+        SELECT * FROM modo_articles
+        ORDER BY published_at DESC
+        LIMIT ${limit}
+      `;
     }
+
     res.json({ ok: true, count: articles.length, articles });
   } catch(e) {
+    console.error('[MODO Published ERROR]', e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
