@@ -16,18 +16,12 @@ const PORT = parseInt(process.env.PORT) || 3000;
 const BUR_VERSION = process.env.GOD_VERSION || '2.0.0';
 const app = express();
 
-// ── CORS ─────────────────────────────────────────────────────
+// ── CORS — accetta tutto, restringere in produzione ───────────
 app.use(cors({
-  origin: [
-    'https://operantis.pages.dev',
-    'https://peaceful-crepe-4757e9.netlify.app',
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'null'
-  ],
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-device-fingerprint']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-device-fingerprint', 'Origin']
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -89,7 +83,6 @@ app.listen(PORT, () => {
   }
 
   console.log('[BUR OS] BDE Economy Engine attivo');
-  console.log('[BUR OS] Treasury recycling ogni 2 ore');
   console.log('[BUR OS] MODO News Aggregator attivo');
 });
 
