@@ -418,6 +418,16 @@ router.post('/chat', async (req, res) => {
 // POST /api/v2/modo/publish
 router.post('/publish', async (req, res) => {
   try {
+    // Parsing robusto del body — gestisce sia JSON che raw string
+    let body = req.body;
+    if(!body || typeof body !== 'object') {
+      try {
+        body = JSON.parse(req.body);
+      } catch(e) {
+        body = {};
+      }
+    }
+
     const { neon } = require('@neondatabase/serverless');
     const sql = neon(process.env.DATABASE_URL);
 
@@ -438,7 +448,7 @@ router.post('/publish', async (req, res) => {
       )
     `;
 
-    const { id, titolo, sommario, corpo, categoria, fonte, sourceUrl, img, isForecast, publishedAt } = req.body;
+    const { id, titolo, sommario, corpo, categoria, fonte, sourceUrl, img, isForecast, publishedAt } = body;
 
     if(!titolo) return res.status(400).json({ ok: false, error: 'titolo mancante' });
 
