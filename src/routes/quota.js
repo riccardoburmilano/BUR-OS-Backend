@@ -48,12 +48,14 @@ async function initTables() {
   await sql`
     CREATE TABLE IF NOT EXISTS quota_users (
       token TEXT PRIMARY KEY,
-      crediti INTEGER DEFAULT 100,
+      qr DECIMAL DEFAULT 400,
       voti_totali INTEGER DEFAULT 0,
       azzeccati INTEGER DEFAULT 0,
       fascia TEXT DEFAULT 'Neutrino',
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      last_active TIMESTAMPTZ DEFAULT NOW()
+      percentile INTEGER DEFAULT 40,
+      streak INTEGER DEFAULT 0,
+      last_active TIMESTAMPTZ DEFAULT NOW(),
+      created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `;
   await sql`
@@ -141,38 +143,37 @@ router.post('/vote', async (req, res) => {
       await sql`UPDATE quota_cards SET votes_no = votes_no + 1 WHERE id = ${card_id}`;
     }
 
-    // +3 crediti per voto (CREDITS.VOTO)
+    // Aggiorna QR: +5 punti base per partecipazione
+    // Il delta reale viene calcolato al resolve
     await sql`
       UPDATE quota_users
-      SET crediti = crediti + 3, voti_totali = voti_totali + 1, last_active = NOW()
+      SET voti_totali = voti_totali + 1,
+          qr = LEAST(1000, qr + 3),
+          last_active = NOW()
       WHERE token = ${user_token}
     `;
 
-    // Controlla streak
-    const [usr] = await sql`SELECT last_active, crediti FROM quota_users WHERE token = ${user_token}`;
+    // Decay passivo se inattivo
+    const [usr] = await sql`SELECT last_active, qr FROM quota_users WHERE token = ${user_token}`;
     if(usr){
-      const lastActive=new Date(usr.last_active);
-      const yesterday=new Date(Date.now()-86400000);
-      const daysDiff=Math.floor((Date.now()-lastActive.getTime())/86400000);
-      if(daysDiff>3){
-        // Decadimento: -8 cr per ogni giorno oltre la grazia
-        const penalty=(daysDiff-3)*8;
-        await sql`UPDATE quota_users SET crediti = GREATEST(0, crediti - ${penalty}) WHERE token = ${user_token}`;
-        console.log('[QUOTA] Decadimento '+user_token.slice(0,8)+': -'+penalty+' cr');
+      const daysDiff = Math.floor((Date.now()-new Date(usr.last_active).getTime())/86400000);
+      if(daysDiff >= 2){
+        const decayAmount = (daysDiff-1) * 8;
+        await sql`UPDATE quota_users SET qr = GREATEST(0, qr - ${decayAmount}) WHERE token = ${user_token}`;
+        console.log('[QUOTA] Decay '+token.slice(0,8)+': -'+decayAmount+' QR');
       }
     }
 
     // Ritorna stato aggiornato utente
-    // Aggiorna fascia
-    await sql`
-      UPDATE quota_users SET fascia = CASE
-        WHEN crediti >= 1500 THEN 'Singolarità'
-        WHEN crediti >= 700 THEN 'Quasar'
-        WHEN crediti >= 300 THEN 'Pulsar'
-        WHEN crediti >= 100 THEN 'Orbiter'
-        ELSE 'Neutrino'
-      END WHERE token = ${user_token}
-    `;
+    // Aggiorna percentile e fascia in base al QR relativo alla community
+    const allUsers = await sql`SELECT qr FROM quota_users ORDER BY qr DESC`;
+    const totalUsers = allUsers.length;
+    await Promise.all((await sql`SELECT token, qr FROM quota_users`).map(async u => {
+      const rank = allUsers.filter(x=>x.qr>u.qr).length;
+      const pct = Math.round((1 - rank/totalUsers)*100);
+      const fascia = pct>=95?'Singolarità':pct>=85?'Quasar':pct>=70?'Pulsar':pct>=40?'Orbiter':'Neutrino';
+      await sql`UPDATE quota_users SET percentile=${pct}, fascia=${fascia} WHERE token=${u.token}`;
+    }));
     const [user] = await sql`SELECT * FROM quota_users WHERE token = ${user_token}`;
     res.json({ ok: true, crediti: user?.crediti || 105, message: '+5 cr per la partecipazione' });
 
@@ -204,10 +205,12 @@ router.get('/user/:token', async (req, res) => {
 
     res.json({
       ok: true,
-      crediti: user.crediti,
+      qr: parseFloat(user.qr)||400,
+      percentile: user.percentile||40,
+      fascia: user.fascia||'Neutrino',
       voti_totali: user.voti_totali,
       azzeccati: user.azzeccati,
-      fascia: user.fascia,
+      streak: user.streak||0,
       accuracy: user.voti_totali > 0 ? Math.round(user.azzeccati / user.voti_totali * 100) : null,
       votes: Object.fromEntries(myVotes.map(v => [v.card_id, v.scelta]))
     });
@@ -378,6 +381,24 @@ async function generateCardsFromRSS() {
 setInterval(() => generateCardsFromRSS(), 30 * 60 * 1000);
 
 
+
+// ── GET /api/v2/quota/ranking ─────────────────────────────────
+router.get('/ranking', async (req, res) => {
+  try {
+    const sql = await getDB();
+    const limit = parseInt(req.query.limit)||20;
+    const users = await sql`
+      SELECT token, qr, percentile, fascia, voti_totali, azzeccati, streak
+      FROM quota_users
+      ORDER BY qr DESC
+      LIMIT ${limit}
+    `;
+    res.json({ ok: true, users: users.map((u,i)=>({...u, rank:i+1, qr:parseFloat(u.qr)})) });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // ── POST /api/v2/quota/resolve ───────────────────────────────
 // Chiude una quota e distribuisce crediti ai vincitori
 router.post('/resolve', async (req, res) => {
@@ -394,14 +415,22 @@ router.post('/resolve', async (req, res) => {
     const reward = card[0].reward || 20;
     let vincitori = 0, perdenti = 0;
 
+    // Calcola difficoltà della previsione
+    const totVoti = voti.length;
+    const votiEsito = voti.filter(v=>v.scelta===esito).length;
+    const pctEsito = totVoti > 0 ? votiEsito/totVoti : 0.5;
+    const difficulty = 1 - pctEsito; // più era improbabile, più vale
+
     for(const voto of voti){
       if(voto.scelta === esito){
-        // Vincitore: +reward crediti
-        await sql`UPDATE quota_users SET crediti = crediti + ${reward}, azzeccati = azzeccati + 1 WHERE token = ${voto.user_token}`;
+        // Azzeccata: guadagno ELO proporzionale alla difficoltà
+        const gain = Math.round(10 + difficulty * 40); // +10 a +50
+        await sql`UPDATE quota_users SET qr = LEAST(1000, qr + ${gain}), azzeccati = azzeccati + 1 WHERE token = ${voto.user_token}`;
         vincitori++;
       } else {
-        // Perdente: -2 crediti
-        await sql`UPDATE quota_users SET crediti = GREATEST(0, crediti - 2) WHERE token = ${voto.user_token}`;
+        // Sbagliata: perdita proporzionale alla facilità
+        const loss = Math.round(5 + (1-difficulty) * 20); // -5 a -25
+        await sql`UPDATE quota_users SET qr = GREATEST(0, qr - ${loss}) WHERE token = ${voto.user_token}`;
         perdenti++;
       }
     }
