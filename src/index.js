@@ -11,6 +11,7 @@ const apiRoutes = require('./routes/api');
 const authRoutes = require('./routes/auth');
 const bdeRoutes = require('./routes/bde-routes');
 const modoNewsRoutes = require('./routes/modo-news');
+const quotaRoutes = require('./routes/quota');
 
 const PORT = parseInt(process.env.PORT) || 3000;
 const BUR_VERSION = process.env.GOD_VERSION || '2.0.0';
@@ -39,6 +40,7 @@ app.use('/api/v2', apiRoutes);
 app.use('/api/v2/operantis', authRoutes);
 app.use('/api/v2/operantis', bdeRoutes);
 app.use('/api/v2/modo', modoNewsRoutes);
+app.use('/api/v2/quota', quotaRoutes);
 
 // ── Root ─────────────────────────────────────────────────────
 app.get('/', (req, res) => {
