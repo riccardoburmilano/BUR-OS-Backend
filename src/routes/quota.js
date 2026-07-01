@@ -141,14 +141,38 @@ router.post('/vote', async (req, res) => {
       await sql`UPDATE quota_cards SET votes_no = votes_no + 1 WHERE id = ${card_id}`;
     }
 
-    // +5 crediti per partecipazione
+    // +3 crediti per voto (CREDITS.VOTO)
     await sql`
       UPDATE quota_users
-      SET crediti = crediti + 5, voti_totali = voti_totali + 1
+      SET crediti = crediti + 3, voti_totali = voti_totali + 1, last_active = NOW()
       WHERE token = ${user_token}
     `;
 
+    // Controlla streak
+    const [usr] = await sql`SELECT last_active, crediti FROM quota_users WHERE token = ${user_token}`;
+    if(usr){
+      const lastActive=new Date(usr.last_active);
+      const yesterday=new Date(Date.now()-86400000);
+      const daysDiff=Math.floor((Date.now()-lastActive.getTime())/86400000);
+      if(daysDiff>3){
+        // Decadimento: -8 cr per ogni giorno oltre la grazia
+        const penalty=(daysDiff-3)*8;
+        await sql`UPDATE quota_users SET crediti = GREATEST(0, crediti - ${penalty}) WHERE token = ${user_token}`;
+        console.log('[QUOTA] Decadimento '+user_token.slice(0,8)+': -'+penalty+' cr');
+      }
+    }
+
     // Ritorna stato aggiornato utente
+    // Aggiorna fascia
+    await sql`
+      UPDATE quota_users SET fascia = CASE
+        WHEN crediti >= 1500 THEN 'Singolarità'
+        WHEN crediti >= 700 THEN 'Quasar'
+        WHEN crediti >= 300 THEN 'Pulsar'
+        WHEN crediti >= 100 THEN 'Orbiter'
+        ELSE 'Neutrino'
+      END WHERE token = ${user_token}
+    `;
     const [user] = await sql`SELECT * FROM quota_users WHERE token = ${user_token}`;
     res.json({ ok: true, crediti: user?.crediti || 105, message: '+5 cr per la partecipazione' });
 
@@ -352,6 +376,57 @@ async function generateCardsFromRSS() {
 
 // Genera card ogni 30 minuti
 setInterval(() => generateCardsFromRSS(), 30 * 60 * 1000);
+
+
+// ── POST /api/v2/quota/resolve ───────────────────────────────
+// Chiude una quota e distribuisce crediti ai vincitori
+router.post('/resolve', async (req, res) => {
+  try {
+    const sql = await getDB();
+    const { card_id, esito } = req.body; // esito: 'si' | 'no'
+    if(!card_id || !esito) return res.status(400).json({ ok: false, error: 'Parametri mancanti' });
+
+    // Trova tutti i voti su questa card
+    const voti = await sql`SELECT user_token, scelta FROM quota_votes WHERE card_id = ${card_id}`;
+    const card = await sql`SELECT * FROM quota_cards WHERE id = ${card_id}`;
+    if(!card.length) return res.status(404).json({ ok: false, error: 'Card non trovata' });
+
+    const reward = card[0].reward || 20;
+    let vincitori = 0, perdenti = 0;
+
+    for(const voto of voti){
+      if(voto.scelta === esito){
+        // Vincitore: +reward crediti
+        await sql`UPDATE quota_users SET crediti = crediti + ${reward}, azzeccati = azzeccati + 1 WHERE token = ${voto.user_token}`;
+        vincitori++;
+      } else {
+        // Perdente: -2 crediti
+        await sql`UPDATE quota_users SET crediti = GREATEST(0, crediti - 2) WHERE token = ${voto.user_token}`;
+        perdenti++;
+      }
+    }
+
+    // Chiudi la card
+    await sql`UPDATE quota_cards SET status = 'chiusa' WHERE id = ${card_id}`;
+
+    // Aggiorna fasce di tutti
+    await sql`
+      UPDATE quota_users SET fascia = CASE
+        WHEN crediti >= 1500 THEN 'Singolarità'
+        WHEN crediti >= 700 THEN 'Quasar'
+        WHEN crediti >= 300 THEN 'Pulsar'
+        WHEN crediti >= 100 THEN 'Orbiter'
+        ELSE 'Neutrino'
+      END
+    `;
+
+    console.log('[QUOTA] Resolved '+card_id+': esito='+esito+', vincitori='+vincitori+', perdenti='+perdenti);
+    res.json({ ok: true, esito, vincitori, perdenti, reward_distribuito: vincitori*reward });
+  } catch(e) {
+    console.error('[QUOTA Resolve]', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 module.exports = router;
 module.exports.generateCardsFromRSS = generateCardsFromRSS;
