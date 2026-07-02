@@ -48,6 +48,10 @@ async function initTables() {
   await sql`
     CREATE TABLE IF NOT EXISTS quota_users (
       token TEXT PRIMARY KEY,
+      telegram_id TEXT UNIQUE,
+      telegram_name TEXT DEFAULT '',
+      telegram_username TEXT DEFAULT '',
+      telegram_photo TEXT DEFAULT '',
       qr DECIMAL DEFAULT 400,
       voti_totali INTEGER DEFAULT 0,
       azzeccati INTEGER DEFAULT 0,
@@ -381,6 +385,45 @@ async function generateCardsFromRSS() {
 setInterval(() => generateCardsFromRSS(), 30 * 60 * 1000);
 
 
+
+
+// ── POST /api/v2/quota/auth/telegram ─────────────────────────
+// Registra/aggiorna utente via Telegram Login
+router.post('/auth/telegram', async (req, res) => {
+  try {
+    const sql = await getDB();
+    const { telegram_id, name, username, photo_url, token } = req.body;
+    if(!telegram_id) return res.status(400).json({ ok: false, error: 'telegram_id mancante' });
+
+    // Crea o aggiorna utente
+    await sql`
+      INSERT INTO quota_users (token, telegram_id, telegram_name, telegram_username, telegram_photo, last_active)
+      VALUES (${token}, ${telegram_id}, ${name||''}, ${username||''}, ${photo_url||''}, NOW())
+      ON CONFLICT (token) DO UPDATE SET
+        telegram_id = EXCLUDED.telegram_id,
+        telegram_name = EXCLUDED.telegram_name,
+        telegram_username = EXCLUDED.telegram_username,
+        telegram_photo = EXCLUDED.telegram_photo,
+        last_active = NOW()
+    `;
+
+    // Recupera profilo completo
+    const [user] = await sql`SELECT * FROM quota_users WHERE token = ${token}`;
+    
+    res.json({
+      ok: true,
+      token,
+      qr: parseFloat(user?.qr||400),
+      fascia: user?.fascia||'Neutrino',
+      percentile: user?.percentile||40,
+      voti_totali: user?.voti_totali||0,
+      new_user: !user?.voti_totali
+    });
+  } catch(e) {
+    console.error('[QUOTA Auth TG]', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 // ── GET /api/v2/quota/ranking ─────────────────────────────────
 router.get('/ranking', async (req, res) => {
