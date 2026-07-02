@@ -425,6 +425,22 @@ router.post('/auth/telegram', async (req, res) => {
   }
 });
 
+
+// ── DELETE /api/v2/quota/card/:id ────────────────────────────
+// Elimina una card pubblicata (dal gestionale)
+router.delete('/card/:id', async (req, res) => {
+  try {
+    const sql = await getDB();
+    const id = req.params.id;
+    await sql`DELETE FROM quota_votes WHERE card_id = ${id}`;
+    await sql`DELETE FROM quota_cards WHERE id = ${id}`;
+    console.log('[QUOTA] Card eliminata:', id);
+    res.json({ ok: true, deleted: id });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // ── GET /api/v2/quota/ranking ─────────────────────────────────
 router.get('/ranking', async (req, res) => {
   try {
