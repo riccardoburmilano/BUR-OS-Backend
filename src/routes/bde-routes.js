@@ -1,13 +1,12 @@
 // ============================================================
-// bde-routes.js — API Routes per BDE + Treasury + Reputation
-// + BUR User Auth + Search sponsorizzata
+// bde-routes.js — BDE + Treasury + Reputation + BUR User Auth
 // ============================================================
 
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { neon } = require('@neondatabase/serverless');
+const { sql } = require('../modules/db');
 
 const orchestrator = require('../modules/bde-orchestrator');
 const reputation = require('../modules/reputation');
@@ -15,7 +14,6 @@ const treasury = require('../modules/treasury');
 const bde = require('../modules/bde');
 const { requireStaff } = require('../modules/authMiddleware');
 
-const sql = neon(process.env.DATABASE_URL);
 const BUR_JWT_SECRET = process.env.JWT_SECRET || 'god-os-jwt-secret-change-in-prod';
 
 // ── Crea tabelle utenti BUR e sponsor ─────────────────────────
@@ -68,7 +66,6 @@ function requireFingerprint(req, res, next) {
 // BUR USER AUTH
 // ============================================================
 
-// ── REGISTRA UTENTE BUR ───────────────────────────────────────
 // POST /bde/user/register
 router.post('/bde/user/register', async (req, res) => {
   try {
@@ -84,18 +81,11 @@ router.post('/bde/user/register', async (req, res) => {
       RETURNING id, email, display_name, created_at
     `;
     const user = rows[0];
-
-    const token = jwt.sign(
-      { bur_user_id: user.id, email: user.email },
-      BUR_JWT_SECRET,
-      { expiresIn: '30d' }
-    );
+    const token = jwt.sign({ bur_user_id: user.id, email: user.email }, BUR_JWT_SECRET, { expiresIn: '30d' });
 
     res.status(201).json({ success: true, token, user: {
-      id: user.id,
-      email: user.email,
-      displayName: user.display_name,
-      createdAt: user.created_at
+      id: user.id, email: user.email,
+      displayName: user.display_name, createdAt: user.created_at
     }});
   } catch (err) {
     if (err.message?.includes('unique') || err.message?.includes('duplicate')) {
@@ -105,16 +95,13 @@ router.post('/bde/user/register', async (req, res) => {
   }
 });
 
-// ── LOGIN UTENTE BUR ──────────────────────────────────────────
 // POST /bde/user/login
 router.post('/bde/user/login', async (req, res) => {
   try {
     const { email, password, fingerprint } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email e password obbligatori' });
 
-    const rows = await sql`
-      SELECT * FROM bur_users WHERE email = ${email.toLowerCase().trim()} LIMIT 1
-    `;
+    const rows = await sql`SELECT * FROM bur_users WHERE email = ${email.toLowerCase().trim()} LIMIT 1`;
     if (!rows[0]) return res.status(401).json({ error: 'Credenziali non valide' });
 
     const ok = await bcrypt.compare(password, rows[0].password_hash);
@@ -131,32 +118,24 @@ router.post('/bde/user/login', async (req, res) => {
 
     const statsRows = await sql`
       SELECT
-        COALESCE(SUM(d.bur_credits_earned), 0) as total_credits,
-        COALESCE(MAX(d.reputation_score), 0) as best_score,
-        COALESCE(MAX(d.level), 0) as best_level,
-        COUNT(d.id) as total_devices
-      FROM bur_devices d
-      WHERE d.bur_user_id = ${rows[0].id}
+        COALESCE(SUM(bur_credits_earned), 0) as total_credits,
+        COALESCE(MAX(reputation_score), 0) as best_score,
+        COALESCE(MAX(level), 0) as best_level,
+        COUNT(id) as total_devices
+      FROM bur_devices WHERE bur_user_id = ${rows[0].id}
     `;
 
-    const token = jwt.sign(
-      { bur_user_id: rows[0].id, email: rows[0].email },
-      BUR_JWT_SECRET,
-      { expiresIn: '30d' }
-    );
+    const token = jwt.sign({ bur_user_id: rows[0].id, email: rows[0].email }, BUR_JWT_SECRET, { expiresIn: '30d' });
 
     res.json({ success: true, token, user: {
-      id: rows[0].id,
-      email: rows[0].email,
-      displayName: rows[0].display_name,
-      stats: statsRows[0]
+      id: rows[0].id, email: rows[0].email,
+      displayName: rows[0].display_name, stats: statsRows[0]
     }});
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── PROFILO UTENTE BUR ────────────────────────────────────────
 // GET /bde/user/profile
 router.get('/bde/user/profile', async (req, res) => {
   try {
@@ -175,12 +154,11 @@ router.get('/bde/user/profile', async (req, res) => {
 
     const statsRows = await sql`
       SELECT
-        COALESCE(SUM(d.bur_credits_earned), 0) as total_credits,
-        COALESCE(MAX(d.reputation_score), 0) as best_score,
-        COALESCE(MAX(d.level), 0) as best_level,
-        COUNT(d.id) as total_devices
-      FROM bur_devices d
-      WHERE d.bur_user_id = ${payload.bur_user_id}
+        COALESCE(SUM(bur_credits_earned), 0) as total_credits,
+        COALESCE(MAX(reputation_score), 0) as best_score,
+        COALESCE(MAX(level), 0) as best_level,
+        COUNT(id) as total_devices
+      FROM bur_devices WHERE bur_user_id = ${payload.bur_user_id}
     `;
 
     const earningsRows = await sql`
@@ -193,11 +171,9 @@ router.get('/bde/user/profile', async (req, res) => {
 
     res.json({
       user: {
-        id: userRows[0].id,
-        email: userRows[0].email,
+        id: userRows[0].id, email: userRows[0].email,
         displayName: userRows[0].display_name,
-        createdAt: userRows[0].created_at,
-        lastLogin: userRows[0].last_login
+        createdAt: userRows[0].created_at, lastLogin: userRows[0].last_login
       },
       stats: statsRows[0],
       earnings: earningsRows
@@ -211,12 +187,11 @@ router.get('/bde/user/profile', async (req, res) => {
 // BDE CORE ROUTES
 // ============================================================
 
-// ── REGISTRA DEVICE ──────────────────────────────────────────
 // POST /bde/register
 router.post('/bde/register', requireFingerprint, async (req, res) => {
   try {
     const { userId, clinicId } = req.body;
-    const device = await reputation.registerDevice(req.fingerprint, userId, clinicId);
+    await reputation.registerDevice(req.fingerprint, userId, clinicId);
     const stats = await reputation.getDeviceStats(req.fingerprint);
     res.json({ success: true, device: stats });
   } catch (err) {
@@ -224,13 +199,11 @@ router.post('/bde/register', requireFingerprint, async (req, res) => {
   }
 });
 
-// ── PIPELINE EVENTO BDE ───────────────────────────────────────
 // POST /bde/event
 router.post('/bde/event', requireFingerprint, async (req, res) => {
   try {
     const { module, ...eventData } = req.body;
     if (!module) return res.status(400).json({ error: 'module obbligatorio' });
-
     const result = await orchestrator.processPipeline(req.fingerprint, module, eventData);
     res.json(result);
   } catch (err) {
@@ -238,7 +211,6 @@ router.post('/bde/event', requireFingerprint, async (req, res) => {
   }
 });
 
-// ── STATS DEVICE ──────────────────────────────────────────────
 // GET /bde/device/stats
 router.get('/bde/device/stats', requireFingerprint, async (req, res) => {
   try {
@@ -250,7 +222,6 @@ router.get('/bde/device/stats', requireFingerprint, async (req, res) => {
   }
 });
 
-// ── NETWORK STATS (pubblico) ──────────────────────────────────
 // GET /bde/network
 router.get('/bde/network', async (req, res) => {
   try {
@@ -261,7 +232,6 @@ router.get('/bde/network', async (req, res) => {
   }
 });
 
-// ── SEARCH — risultati sponsorizzati ─────────────────────────
 // GET /bde/search?keyword=bicicletta
 router.get('/bde/search', requireFingerprint, async (req, res) => {
   try {
@@ -269,8 +239,7 @@ router.get('/bde/search', requireFingerprint, async (req, res) => {
     if (!keyword) return res.json({ results: [], creditsEarned: 0 });
 
     const routingResult = await orchestrator.processPipeline(
-      req.fingerprint,
-      'routing',
+      req.fingerprint, 'routing',
       { packetId: 'search-' + Date.now(), latencyMs: 35 }
     );
 
@@ -280,19 +249,15 @@ router.get('/bde/search', requireFingerprint, async (req, res) => {
         SELECT name, description, url, keyword_tags
         FROM bur_sponsors
         WHERE active = TRUE
-          AND (
-            keyword_tags && ARRAY[${keyword}]::text[]
+          AND (keyword_tags && ARRAY[${keyword}]::text[]
             OR name ILIKE ${'%' + keyword + '%'}
-            OR description ILIKE ${'%' + keyword + '%'}
-          )
-        ORDER BY priority DESC
-        LIMIT 3
+            OR description ILIKE ${'%' + keyword + '%'})
+        ORDER BY priority DESC LIMIT 3
       `;
     } catch { sponsors = []; }
 
     res.json({
-      keyword,
-      results: sponsors,
+      keyword, results: sponsors,
       creditsEarned: routingResult?.burCredits || 0,
       sponsored: sponsors.length > 0
     });
@@ -301,8 +266,7 @@ router.get('/bde/search', requireFingerprint, async (req, res) => {
   }
 });
 
-// ── TREASURY STATUS (staff only) ─────────────────────────────
-// GET /bde/treasury
+// GET /bde/treasury (staff only)
 router.get('/bde/treasury', requireStaff, async (req, res) => {
   try {
     const status = await treasury.getTreasuryStatus();
@@ -312,14 +276,12 @@ router.get('/bde/treasury', requireStaff, async (req, res) => {
   }
 });
 
-// ── AI BUFFER STATUS ──────────────────────────────────────────
-// GET /bde/ai-buffer
+// GET /bde/ai-buffer (staff only)
 router.get('/bde/ai-buffer', requireStaff, async (req, res) => {
   try {
     const buffer = orchestrator.getAiBuffer();
     res.json({
-      credits: buffer.credits,
-      eur: buffer.eur,
+      credits: buffer.credits, eur: buffer.eur,
       canSupportRequests: Math.floor(buffer.credits / 0.5),
     });
   } catch (err) {
@@ -327,23 +289,19 @@ router.get('/bde/ai-buffer', requireStaff, async (req, res) => {
   }
 });
 
-// ── LIVELLI BDE ───────────────────────────────────────────────
 // GET /bde/levels
 router.get('/bde/levels', (req, res) => {
   res.json({
     levels: reputation.BDE_LEVELS,
     rates: bde.BDE_RATES,
     config: {
-      recyclingInterval: '2 ore',
-      decayRate: '2%/giorno',
-      treasuryMargin: '33%',
-      split: '67% utenti / 20% treasury / 13% platform',
+      recyclingInterval: '2 ore', decayRate: '2%/giorno',
+      treasuryMargin: '33%', split: '67% utenti / 20% treasury / 13% platform',
     },
   });
 });
 
-// ── FORCE RECYCLING (admin) ───────────────────────────────────
-// POST /bde/treasury/recycle
+// POST /bde/treasury/recycle (staff only)
 router.post('/bde/treasury/recycle', requireStaff, async (req, res) => {
   try {
     const result = await treasury.runRecyclingCycle();
