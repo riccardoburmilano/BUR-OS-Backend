@@ -10,22 +10,36 @@ const daemon = require('./daemon/valueDaemon');
 const apiRoutes = require('./routes/api');
 const authRoutes = require('./routes/auth');
 const bdeRoutes = require('./routes/bde-routes');
-const modoNewsRoutes = require('./routes/modo-news');
-const quotaRoutes = require('./routes/quota');
 
 const PORT = parseInt(process.env.PORT) || 3000;
 const BUR_VERSION = process.env.GOD_VERSION || '2.0.0';
 const app = express();
 
 // ── CORS ─────────────────────────────────────────────────────
+// Permette estensioni Chrome + frontend noti + localhost
+const ALLOWED_ORIGINS = [
+  'https://operantis.pages.dev',
+  'https://peaceful-crepe-4757e9.netlify.app',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    // Permetti richieste senza origin (curl, Postman, mobile)
+    if (!origin) return callback(null, true);
+    // Permetti estensioni Chrome
+    if (origin.startsWith('chrome-extension://')) return callback(null, true);
+    // Permetti origini note
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // Blocca tutto il resto
+    callback(new Error('CORS non permesso: ' + origin));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-device-fingerprint']
 }));
 
-// ── Body parsing — DEVE stare PRIMA delle route ───────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -39,8 +53,6 @@ app.use((req, res, next) => {
 app.use('/api/v2', apiRoutes);
 app.use('/api/v2/operantis', authRoutes);
 app.use('/api/v2/operantis', bdeRoutes);
-app.use('/api/v2/modo', modoNewsRoutes);
-app.use('/api/v2/quota', quotaRoutes);
 
 // ── Root ─────────────────────────────────────────────────────
 app.get('/', (req, res) => {
@@ -52,13 +64,13 @@ app.get('/', (req, res) => {
     mode: s.system?.mode || 'NORMAL',
     daemon: daemon.isRunning() ? 'RUNNING' : 'STOPPED',
     uptime: s.metrics?.uptime_start,
-    modules: ['operantis', 'bde', 'treasury', 'reputation', 'nova', 'modo-news']
+    modules: ['operantis', 'bde', 'treasury', 'reputation', 'nova']
   });
 });
 
 // ── Health ───────────────────────────────────────────────────
 app.get('/api/v2/health', (req, res) => {
-  res.json({ status: 'ok', version: BUR_VERSION, ts: new Date().toISOString() });
+  res.json({ status: 'GOD ONLINE', version: BUR_VERSION, mode: 'NORMAL', uptime: new Date().toISOString(), timestamp: now() });
 });
 
 // ── 404 ───────────────────────────────────────────────────────
@@ -86,7 +98,7 @@ app.listen(PORT, () => {
   }
 
   console.log('[BUR OS] BDE Economy Engine attivo');
-  console.log('[BUR OS] MODO News Aggregator attivo');
+  console.log('[BUR OS] Treasury recycling ogni 2 ore');
 });
 
 process.on('SIGTERM', () => { daemon.stop(); process.exit(0); });
