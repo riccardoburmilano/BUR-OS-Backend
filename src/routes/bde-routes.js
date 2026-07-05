@@ -312,3 +312,307 @@ router.post('/bde/treasury/recycle', requireStaff, async (req, res) => {
 });
 
 module.exports = router;
+// ============================================================
+// GAP 1 — REVENUE INJECTION (Amazon/Awin → Treasury)
+// POST /bde/treasury/inject-revenue
+// Chiamato da admin quando arriva bonifico esterno
+// ============================================================
+router.post('/bde/treasury/inject-revenue', requireStaff, async (req, res) => {
+  try {
+    const { amount_eur, source, period, proof } = req.body;
+
+    if (!amount_eur || amount_eur <= 0) return res.status(400).json({ error: 'amount_eur obbligatorio e > 0' });
+    if (!source) return res.status(400).json({ error: 'source obbligatorio (es: amazon_associates, awin)' });
+    if (!period) return res.status(400).json({ error: 'period obbligatorio (es: 2026-07)' });
+
+    // Split 60/20/20
+    const toUsers     = parseFloat((amount_eur * 0.60).toFixed(4));
+    const toTreasury  = parseFloat((amount_eur * 0.20).toFixed(4));
+    const toPlatform  = parseFloat((amount_eur * 0.20).toFixed(4));
+    const burCredits  = parseFloat((amount_eur * 100).toFixed(2)); // 1€ = 100 BUR Credits
+
+    // Device attivi nel periodo per distribuzione pro-quota
+    const activeDevices = await sql`
+      SELECT device_fingerprint, reputation_score, bur_user_id
+      FROM bur_devices
+      WHERE last_seen >= NOW() - INTERVAL '30 days'
+        AND suspended = FALSE
+      ORDER BY reputation_score DESC
+    `;
+
+    if (activeDevices.length === 0) {
+      return res.status(400).json({ error: 'Nessun device attivo nel periodo — impossibile distribuire' });
+    }
+
+    // Distribuzione pro-quota basata su reputation_score
+    const totalScore = activeDevices.reduce((s, d) => s + parseFloat(d.reputation_score || 1), 0);
+    const distributions = activeDevices.map(d => ({
+      fingerprint: d.device_fingerprint,
+      user_id: d.bur_user_id,
+      score: parseFloat(d.reputation_score || 1),
+      quota: parseFloat(d.reputation_score || 1) / totalScore,
+      eur_share: parseFloat(((parseFloat(d.reputation_score || 1) / totalScore) * toUsers).toFixed(6)),
+      credits_share: parseFloat(((parseFloat(d.reputation_score || 1) / totalScore) * burCredits * 0.60).toFixed(4))
+    }));
+
+    // Aggiorna treasury
+    await sql`
+      UPDATE bur_treasury
+      SET balance_eur = balance_eur + ${toTreasury},
+          total_distributed = total_distributed + ${toUsers},
+          total_generated = total_generated + ${amount_eur}
+      WHERE id = (SELECT id FROM bur_treasury LIMIT 1)
+    `;
+
+    // Aggiorna BUR Credits per ogni device proporzionalmente
+    for (const d of distributions) {
+      if (d.credits_share > 0) {
+        await sql`
+          UPDATE bur_devices
+          SET bur_credits_earned = bur_credits_earned + ${d.credits_share}
+          WHERE device_fingerprint = ${d.fingerprint}
+        `.catch(() => {});
+      }
+    }
+
+    // Registra nel ledger
+    await sql`
+      INSERT INTO bur_revenue_ledger (
+        source, period, amount_eur, to_users_eur,
+        to_treasury_eur, to_platform_eur, bur_credits_issued,
+        devices_rewarded, proof, injected_at
+      ) VALUES (
+        ${source}, ${period}, ${amount_eur}, ${toUsers},
+        ${toTreasury}, ${toPlatform}, ${burCredits},
+        ${activeDevices.length}, ${proof || null}, NOW()
+      )
+    `.catch(async () => {
+      // Crea tabella se non esiste
+      await sql`
+        CREATE TABLE IF NOT EXISTS bur_revenue_ledger (
+          id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+          source TEXT NOT NULL,
+          period TEXT NOT NULL,
+          amount_eur FLOAT NOT NULL,
+          to_users_eur FLOAT,
+          to_treasury_eur FLOAT,
+          to_platform_eur FLOAT,
+          bur_credits_issued FLOAT,
+          devices_rewarded INTEGER,
+          proof TEXT,
+          injected_at TIMESTAMP DEFAULT NOW()
+        )
+      `;
+      await sql`
+        INSERT INTO bur_revenue_ledger (
+          source, period, amount_eur, to_users_eur,
+          to_treasury_eur, to_platform_eur, bur_credits_issued,
+          devices_rewarded, proof, injected_at
+        ) VALUES (
+          ${source}, ${period}, ${amount_eur}, ${toUsers},
+          ${toTreasury}, ${toPlatform}, ${burCredits},
+          ${activeDevices.length}, ${proof || null}, NOW()
+        )
+      `;
+    });
+
+    res.json({
+      success: true,
+      injection: {
+        source,
+        period,
+        amount_eur,
+        split: { to_users: toUsers, to_treasury: toTreasury, to_platform: toPlatform },
+        bur_credits_issued: burCredits,
+        devices_rewarded: activeDevices.length,
+        avg_per_device_eur: parseFloat((toUsers / activeDevices.length).toFixed(6)),
+        avg_per_device_credits: parseFloat((burCredits * 0.60 / activeDevices.length).toFixed(4))
+      }
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── WISE CSV IMPORT (semi-automatico) ─────────────────────────
+// POST /bde/treasury/import-wise-csv
+// Body: { csv_text: "...", source: "amazon_associates" }
+router.post('/bde/treasury/import-wise-csv', requireStaff, async (req, res) => {
+  try {
+    const { csv_text, source } = req.body;
+    if (!csv_text) return res.status(400).json({ error: 'csv_text obbligatorio' });
+
+    // Parse CSV Wise — formato: Date,Amount,Currency,Description
+    const lines = csv_text.split('\n').filter(l => l.trim());
+    const header = lines[0].toLowerCase();
+
+    if (!header.includes('amount') || !header.includes('date')) {
+      return res.status(400).json({ error: 'Formato CSV non riconosciuto — usa export Wise standard' });
+    }
+
+    const rows = lines.slice(1).map(line => {
+      const cols = line.split(',');
+      return {
+        date: cols[0]?.trim(),
+        amount: parseFloat(cols[1]?.trim() || '0'),
+        currency: cols[2]?.trim(),
+        description: cols[3]?.trim() || ''
+      };
+    }).filter(r => r.amount > 0 && r.currency === 'EUR');
+
+    const total = rows.reduce((s, r) => s + r.amount, 0);
+    const period = rows[0]?.date?.slice(0, 7) || new Date().toISOString().slice(0, 7);
+
+    if (total === 0) return res.status(400).json({ error: 'Nessuna transazione EUR positiva trovata nel CSV' });
+
+    // Inietta automaticamente
+    const injectRes = await fetch(`${req.protocol}://${req.get('host')}/api/v2/operantis/bde/treasury/inject-revenue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': req.headers.authorization },
+      body: JSON.stringify({
+        amount_eur: parseFloat(total.toFixed(2)),
+        source: source || 'wise_import',
+        period,
+        proof: `Wise CSV — ${rows.length} transazioni — totale €${total.toFixed(2)}`
+      })
+    });
+    const result = await injectRes.json();
+    res.json({ success: true, rows_parsed: rows.length, total_eur: total.toFixed(2), ...result });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── STORICO REVENUE LEDGER ────────────────────────────────────
+// GET /bde/treasury/ledger
+router.get('/bde/treasury/ledger', requireStaff, async (req, res) => {
+  try {
+    const rows = await sql`
+      SELECT * FROM bur_revenue_ledger
+      ORDER BY injected_at DESC
+      LIMIT 50
+    `.catch(() => []);
+    res.json({ ledger: rows, total_injected: rows.reduce((s, r) => s + r.amount_eur, 0) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// GAP 2 — SIGNALS AGGREGATE (routing events → market intelligence)
+// GET /bde/signals/aggregate
+// Dati vendibili a buyer esterni — zero PII
+// ============================================================
+router.get('/bde/signals/aggregate', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days || '7');
+    const limit = parseInt(req.query.limit || '100');
+
+    // Top keyword dal campo keyword degli eventi routing
+    const keywordRows = await sql`
+      SELECT
+        event_data->>'keyword' AS keyword,
+        COUNT(*) AS volume,
+        COUNT(DISTINCT device_fingerprint) AS unique_devices,
+        AVG(value_eur) AS avg_value_eur,
+        DATE_TRUNC('day', created_at) AS day
+      FROM bde_events
+      WHERE module = 'routing'
+        AND created_at >= NOW() - (${days} || ' days')::INTERVAL
+        AND event_data->>'keyword' IS NOT NULL
+        AND event_data->>'keyword' != ''
+      GROUP BY event_data->>'keyword', DATE_TRUNC('day', created_at)
+      ORDER BY volume DESC
+      LIMIT ${limit}
+    `.catch(() => []);
+
+    // Aggregazione per categoria (basata su keyword matching semplice)
+    const categories = {
+      tech: ['iphone', 'samsung', 'laptop', 'pc', 'smartphone', 'vpn', 'software'],
+      travel: ['hotel', 'volo', 'viaggio', 'vacanza', 'booking', 'airbnb'],
+      fashion: ['scarpe', 'abbigliamento', 'vestiti', 'borsa', 'nike', 'adidas'],
+      finance: ['mutuo', 'prestito', 'assicurazione', 'conto', 'investimento'],
+      food: ['ristorante', 'ricetta', 'pizza', 'delivery', 'deliveroo'],
+    };
+
+    const categoryVolumes = {};
+    for (const [cat, terms] of Object.entries(categories)) {
+      const vol = keywordRows.filter(r =>
+        terms.some(t => r.keyword?.toLowerCase().includes(t))
+      ).reduce((s, r) => s + parseInt(r.volume), 0);
+      categoryVolumes[cat] = vol;
+    }
+
+    // Trend (keyword che crescono più velocemente)
+    const topKeywords = keywordRows.slice(0, 20).map(r => ({
+      keyword: r.keyword,
+      volume: parseInt(r.volume),
+      unique_devices: parseInt(r.unique_devices),
+      commercial_value: parseFloat((r.avg_value_eur * r.volume * 0.001).toFixed(4))
+    }));
+
+    // Stima valore del dataset per buyer
+    const totalVolume = keywordRows.reduce((s, r) => s + parseInt(r.volume), 0);
+    const estimatedDatasetValue = parseFloat((totalVolume * 0.000001 * 5000).toFixed(2));
+
+    res.json({
+      period_days: days,
+      generated_at: new Date().toISOString(),
+      summary: {
+        total_intent_signals: totalVolume,
+        unique_keywords: keywordRows.length,
+        estimated_dataset_value_eur: estimatedDatasetValue,
+        note: 'Dati aggregati anonimi — zero PII — GDPR compliant'
+      },
+      categories: categoryVolumes,
+      top_keywords: topKeywords,
+      monetization: {
+        available_for_licensing: true,
+        contact: 'burbrowser@gmail.com',
+        formats: ['JSON API', 'CSV weekly', 'Real-time webhook'],
+        pricing: 'Su richiesta — base €500/mese per accesso API'
+      }
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── SIGNALS TREND (ultimi N giorni per keyword specifica) ────
+// GET /bde/signals/trend?keyword=vpn&days=30
+router.get('/bde/signals/trend', async (req, res) => {
+  try {
+    const keyword = req.query.keyword;
+    const days = parseInt(req.query.days || '30');
+    if (!keyword) return res.status(400).json({ error: 'keyword obbligatoria' });
+
+    const trend = await sql`
+      SELECT
+        DATE_TRUNC('day', created_at) AS day,
+        COUNT(*) AS volume,
+        COUNT(DISTINCT device_fingerprint) AS unique_devices
+      FROM bde_events
+      WHERE module = 'routing'
+        AND created_at >= NOW() - (${days} || ' days')::INTERVAL
+        AND event_data->>'keyword' ILIKE ${'%' + keyword + '%'}
+      GROUP BY DATE_TRUNC('day', created_at)
+      ORDER BY day ASC
+    `.catch(() => []);
+
+    res.json({
+      keyword,
+      period_days: days,
+      trend: trend.map(r => ({
+        day: r.day,
+        volume: parseInt(r.volume),
+        unique_devices: parseInt(r.unique_devices)
+      }))
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
