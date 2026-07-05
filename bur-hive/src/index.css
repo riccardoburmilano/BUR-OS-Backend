@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --radius: 0.5rem;
+  --bur-gold: oklch(0.82 0.13 85);
+  --bur-gold-soft: oklch(0.9 0.09 88);
+  --bur-ink: oklch(0.15 0 0);
+  --bur-line: oklch(0.92 0 0);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.15 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0 0);
+  --primary: oklch(0.15 0 0);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.15 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.5 0 0);
+  --accent: var(--bur-gold);
+  --accent-foreground: oklch(0.15 0 0);
+  --border: oklch(0.92 0 0);
+  --input: oklch(0.92 0 0);
+  --ring: var(--bur-gold);
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Inter", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* ── Hive cell utilities ── */
+.hive-cell {
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px var(--bur-line);
+  cursor: default;
+}
+
+.hive-cell--active {
+  cursor: pointer;
+  transition: all 300ms;
+}
+
+.hive-cell--active:hover {
+  background: color-mix(in oklab, var(--bur-gold) 12%, white);
+  box-shadow:
+    inset 0 0 0 1px var(--bur-gold),
+    0 0 40px color-mix(in oklab, var(--bur-gold) 45%, transparent);
+}
+
+.hive-cell--soon {
+  background: #fafafa;
+  cursor: default;
+}
+
+.hive-cell--ghost {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--bur-line) 60%, transparent);
+}
